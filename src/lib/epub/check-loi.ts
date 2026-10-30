@@ -41,13 +41,18 @@ function collectLoiLinks(files: XhtmlEntry[]): { loiPath: string; links: LoiLink
     .map((anchor) => {
       const href = anchor.getAttribute("href") ?? "";
       const [pathPart, fragment = ""] = href.split("#", 2);
+      const targetFile = pathPart
+        ? resolveRelativePath(loi.path, decodeURIComponent(pathPart))
+        : loi.path;
       return {
         href,
-        targetFile: pathPart ? resolveRelativePath(loi.path, decodeURIComponent(pathPart)) : loi.path,
+        targetFile,
         fragment: decodeURIComponent(fragment),
         caption: normalizeText(anchor.textContent),
       };
-    });
+    })
+    // 표지 파일을 가리키는 링크는 LOI 검사 대상에서 제외합니다.
+    .filter((link) => !isCover(link.targetFile));
   return { loiPath: loi.path, links };
 }
 
@@ -107,9 +112,14 @@ export async function checkLoi(zip: JSZip, xhtmlFiles: XhtmlEntry[]): Promise<Lo
   const numberDetails: string[] = [];
   for (const [hash, uses] of imageHashes) {
     if (uses.length > 1) {
-      duplicateDetails.push(`동일 이미지 중복 사용: ${uses.map((use) => use.file).join(", ")} (${hash.slice(0, 12)})`);
+      const uniqueFiles = [...new Set(uses.map((use) => use.file))];
+      duplicateDetails.push(`${hash.slice(0, 12)}\n${uniqueFiles.join("\n")}`);
       const ids = [...new Set(uses.map((use) => use.figureId).filter(Boolean))];
-      if (ids.length > 1) numberDetails.push(`동일 이미지에 서로 다른 Figure ID 사용: ${ids.join(", ")} (${uses[0].file})`);
+      if (ids.length > 1) {
+        const idLines = ids.map((id) => `Figure ID: ${id}`).join("\n");
+        const fileLines = uniqueFiles.join("\n");
+        numberDetails.push(`${hash.slice(0, 12)}\n${idLines}\n${fileLines}`);
+      }
     }
   }
 

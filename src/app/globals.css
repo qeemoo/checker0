@@ -38,7 +38,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
   margin: 0 auto;
   padding: 58px 0 88px;
 }
-.app-header { margin-bottom: 30px; }
+.app-header { margin-bottom: 42px; }
 .app-eyebrow {
   display: inline-flex;
   align-items: center;
@@ -74,23 +74,23 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
 }
 
 .panel {
-  margin: 0 0 20px;
-  padding: 26px 28px;
+  margin: 0 0 34px;
+  padding: 30px 32px;
   border: 1px solid rgba(222, 228, 238, .95);
   border-radius: 18px;
   background: var(--surface);
   box-shadow: 0 8px 28px rgba(31, 48, 82, .045), 0 1px 2px rgba(31, 48, 82, .035);
 }
 .panel h2 {
-  margin: 0 0 18px;
+  margin: 0 0 23px;
   color: #1b2740;
   font-size: 18px;
   font-weight: 800;
   letter-spacing: -.025em;
 }
 .panel h3 {
-  margin-top: 25px;
-  padding-top: 17px;
+  margin-top: 32px;
+  padding-top: 21px;
   border-top: 1px solid #edf0f5;
   color: #34415a;
   font-size: 13px;
@@ -134,7 +134,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
 .upload-title { color: #202c43; font-size: 16px; font-weight: 750; }
 .upload-hint { margin-top: 9px; color: #8791a2; font-size: 12px; }
 
-.action-toolbar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; margin-bottom: 16px; }
+.action-toolbar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; margin-bottom: 28px; }
 .btn-primary, .btn-secondary, .btn-soft {
   display: inline-flex;
   min-height: 40px;
@@ -200,7 +200,7 @@ input[type="text"]:focus, input:not([type]):focus, .metadata-input:focus {
 /* Result rows and expandable details */
 .panel details { border-bottom: 1px solid #edf0f5; }
 .panel details:last-child { border-bottom: 0; }
-.panel summary { padding: 11px 2px; color: #3b475d; font-weight: 600; }
+.panel summary { padding: 14px 2px; color: #3b475d; font-weight: 600; }
 .panel summary::marker { color: #9aa6ba; }
 .panel pre { border: 1px solid #e8edf5; border-radius: 9px; background: #f7f9fc; color: #4b5870; }
 .panel ul { line-height: 1.65; }
@@ -208,9 +208,9 @@ input[type="text"]:focus, input:not([type]):focus, .metadata-input:focus {
 /* CSS cleanup preview */
 .css-preview-card { overflow: hidden; border: 1px solid #e4e9f1; border-radius: 12px; background: #fff; }
 .css-preview-head { padding: 15px 16px; }
-.css-preview-body { border-top: 1px solid #e9edf3; background: #fbfcfe; padding: 16px; }
+.css-preview-body { border-top: 1px solid #e9edf3; background: #fbfcfe; padding: 20px; }
 .css-code-preview {
-  max-height: 390px;
+  max-height: 440px;
   overflow: auto;
   padding: 17px 19px;
   border: 1px solid #e5eaf2;
@@ -225,8 +225,9 @@ input[type="text"]:focus, input:not([type]):focus, .metadata-input:focus {
 .summary-tile { border: 1px solid #e8edf4; border-radius: 11px; background: #f8faff; padding: 13px 14px; }
 
 @media (max-width: 640px) {
-  .app-shell { width: min(100% - 28px, 980px); padding: 35px 0 55px; }
-  .panel { padding: 20px 17px; border-radius: 14px; }
+  .app-shell { width: min(100% - 28px, 980px); padding: 40px 0 60px; }
+  .app-header { margin-bottom: 32px; }
+  .panel { margin-bottom: 25px; padding: 23px 18px; border-radius: 14px; }
   .upload-dropzone { min-height: 220px; padding: 30px 18px; }
   .action-toolbar { justify-content: stretch; }
   .action-toolbar button { flex: 1; }

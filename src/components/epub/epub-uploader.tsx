@@ -187,9 +187,7 @@ export default function EpubUploader() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <span className="app-eyebrow">EBOOK QUALITY TOOL</span>
         <h1 className="app-title">EPUB Checker</h1>
-        <p className="app-description">EPUB 파일의 메타데이터, 문서 구조, 접근성 및 CSS 색상 규칙을 한곳에서 검사하고 정리합니다.</p>
       </header>
 
       {!originalFile && (

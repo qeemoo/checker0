@@ -33,9 +33,6 @@ export default function EpubCssCleaner({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-black">CSS 정리</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            사용하지 않는 색상 클래스는 제외하고, 색상 클래스명과 색상값을 통일해 위치·색상별로 정리합니다.
-          </p>
         </div>
         <button
           type="button"
@@ -43,7 +40,7 @@ export default function EpubCssCleaner({
           disabled={disabled || !preview || preview.cssFiles.length === 0}
           className="btn-primary"
         >
-          전체 CSS 정리하기
+          전체 정리
         </button>
       </div>
 
@@ -94,35 +91,19 @@ export default function EpubCssCleaner({
                             : "btn-primary"
                         }`}
                       >
-                        {isSelected ? "정리 예약됨" : "이 CSS 정리하기"}
+                        {isSelected ? "정리 예약됨" : "정리"}
                       </button>
                     </div>
                   </div>
 
                   {isOpen && (
                     <div className="css-preview-body">
-                      {item.colors.length > 0 ? (
-                        <div className="mb-3 flex flex-wrap gap-2">
-                          {item.colors.map((color, index) => (
-                            <span
-                              key={`${color.className}-${color.property}-${index}`}
-                              className="inline-flex items-center gap-2 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700"
-                            >
-                              <span
-                                className="inline-block h-3 w-3 rounded-sm border border-gray-300"
-                                style={
-                                  color.property === "background-color"
-                                    ? { backgroundColor: color.color }
-                                    : { backgroundColor: "#FFFFFF" }
-                                }
-                              />
-                              .{color.className} · {color.color} · {color.location}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mb-3 text-sm text-gray-500">정리할 색상 클래스가 없습니다.</p>
-                      )}
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold tracking-wide text-gray-500">색상 규칙 미리보기</p>
+                        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                          {item.colors.length}개 규칙
+                        </span>
+                      </div>
                       <pre className="css-code-preview">
                         {item.previewCss || "표시할 색상 규칙이 없습니다."}
                       </pre>

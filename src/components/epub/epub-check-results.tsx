@@ -22,7 +22,7 @@ function LoiRow({ label, value }: { label: string; value: LoiCheckResult }) {
 
 export default function EpubCheckResults({ checks, accessibilityModified }: Props) {
   return <section className="panel">
-    <h2 className="mb-3 text-xl font-bold">검사 결과</h2>
+    <h2 className="mb-3 text-xl font-bold">메타 검사</h2>
     <div className="mb-4 flex items-center justify-between border-b border-gray-100 py-3 text-sm"><span>접근성 적합성(WCAG 2.2 AA)</span><Status ok={checks.conformsTo} modified={accessibilityModified} /></div>
     <div className="flex items-center justify-between border-b border-gray-100 py-3 text-sm"><span>ACC-fix 메타데이터 미포함</span><Status ok={checks.accFix} /></div>
     <h3 className="mb-1 mt-5 font-semibold">메타데이터 검사</h3>

@@ -14,6 +14,7 @@ export interface CssFilePreview {
   path: string;
   previewCss: string;
   colors: CssColorItem[];
+  classRenames: { from: string; to: string }[];
   renamedClasses: number;
   updatedColorValues: number;
 }
@@ -109,7 +110,47 @@ function protectCssCommentsAndStrings(css: string): {
   };
 }
 
-function normalizeCss(css: string): {
+function colorClassName(property: "color" | "background-color", color: string): string {
+  const hex = color.replace("#", "").toUpperCase();
+  if (property === "background-color") return `B${hex}`;
+  return hex === "FFFFFF" ? "CFFFFFF" : `F${hex}`;
+}
+
+async function buildColorClassMap(zip: JSZip): Promise<Map<string, string>> {
+  const mapping = new Map<string, string>();
+  for (const path of Object.keys(zip.files)) {
+    if (zip.files[path].dir || !path.toLowerCase().endsWith(".css")) continue;
+    const entry = zip.file(path);
+    if (!entry) continue;
+    const css = await entry.async("text");
+    const rules = /([^{}]+)\{([^{}]*)\}/g;
+    let rule: RegExpExecArray | null;
+    while ((rule = rules.exec(css)) !== null) {
+      const classes: string[] = [];
+      const classPattern = /\.([CBF][0-9a-f]{6})(?![\w-])/gi;
+      let classMatch: RegExpExecArray | null;
+      while ((classMatch = classPattern.exec(rule[1])) !== null) classes.push(classMatch[1]);
+      const declarations = rule[2];
+      const colors: { property: string; value: string }[] = [];
+      const colorPattern = /\b(color|background-color)\s*:\s*(#[0-9a-f]{6})\b/gi;
+      let colorMatch: RegExpExecArray | null;
+      while ((colorMatch = colorPattern.exec(declarations)) !== null) colors.push({ property: colorMatch[1], value: colorMatch[2] });
+      for (const color of colors) {
+        const property = color.property.toLowerCase() as "color" | "background-color";
+        const replacement = colorClassName(property, color.value);
+        for (const original of classes) {
+          const oldName = normalizeClassName(original);
+          if (property === "background-color" && oldName[0].toUpperCase() !== "B") continue;
+          if (property === "color" && oldName[0].toUpperCase() === "B") continue;
+          mapping.set(oldName, replacement);
+        }
+      }
+    }
+  }
+  return mapping;
+}
+
+function normalizeCss(css: string, classMap: Map<string, string> = new Map()): {
   content: string;
   renamedClasses: number;
   updatedColorValues: number;
@@ -121,7 +162,8 @@ function normalizeCss(css: string): {
   let content = protectedCss.content.replace(
     /\.([CBF][0-9a-f]{6})(?![\w-])/gi,
     (match, className: string) => {
-      const normalized = normalizeClassName(className);
+      const baseName = normalizeClassName(className);
+      const normalized = classMap.get(baseName) ?? baseName;
       if (normalized !== className) renamedClasses += 1;
       return `.${normalized}`;
     },
@@ -140,7 +182,7 @@ function normalizeCss(css: string): {
   };
 }
 
-async function collectClassLocations(zip: JSZip): Promise<Map<string, Set<string>>> {
+async function collectClassLocations(zip: JSZip, classMap: Map<string, string> = new Map()): Promise<Map<string, Set<string>>> {
   const locations = new Map<string, Set<string>>();
 
   for (const path of Object.keys(zip.files)) {
@@ -156,7 +198,8 @@ async function collectClassLocations(zip: JSZip): Promise<Map<string, Set<string
       for (const originalName of match[2].split(/\s+/).filter(Boolean)) {
         if (!COLOR_CLASS_PATTERN.test(originalName)) continue;
 
-        const normalizedName = normalizeClassName(originalName);
+        const baseName = normalizeClassName(originalName);
+        const normalizedName = classMap.get(baseName) ?? baseName;
         if (!locations.has(normalizedName)) locations.set(normalizedName, new Set());
         locations.get(normalizedName)!.add(normalizeLocation(path));
       }
@@ -291,7 +334,7 @@ function findColorRules(
   return [...unique.values()];
 }
 
-async function normalizeXhtml(zip: JSZip, path: string): Promise<boolean> {
+async function normalizeXhtml(zip: JSZip, path: string, classMap: Map<string, string>): Promise<boolean> {
   const file = zip.file(path);
   if (!file) return false;
 
@@ -301,7 +344,11 @@ async function normalizeXhtml(zip: JSZip, path: string): Promise<boolean> {
     (_full, quote: string, classNames: string) => {
       const normalized = classNames
         .split(/(\s+)/)
-        .map((token) => (/^\s+$/.test(token) ? token : normalizeClassName(token)))
+        .map((token) => {
+          if (/^\s+$/.test(token)) return token;
+          const baseName = normalizeClassName(token);
+          return classMap.get(baseName) ?? baseName;
+        })
         .join("");
       return `class=${quote}${normalized}${quote}`;
     },
@@ -321,7 +368,8 @@ export async function previewEpubCss(zip: JSZip): Promise<CssCleanupPreview> {
   const xhtmlFiles = Object.keys(zip.files).filter(
     (path) => !zip.files[path].dir && path.toLowerCase().endsWith(".xhtml"),
   );
-  const classLocations = await collectClassLocations(zip);
+  const classMap = await buildColorClassMap(zip);
+  const classLocations = await collectClassLocations(zip, classMap);
   const previewsByFile: CssFilePreview[] = [];
   const allColors: CssColorItem[] = [];
   let renamedClasses = 0;
@@ -332,7 +380,7 @@ export async function previewEpubCss(zip: JSZip): Promise<CssCleanupPreview> {
     if (!file) continue;
 
     const original = await file.async("text");
-    const normalized = normalizeCss(original);
+    const normalized = normalizeCss(original, classMap);
     const colors = findColorRules(normalized.content, path, classLocations);
     const colorPreview = buildColorCss(colors);
     const previewCss = colorPreview;
@@ -341,6 +389,7 @@ export async function previewEpubCss(zip: JSZip): Promise<CssCleanupPreview> {
       path,
       previewCss,
       colors,
+      classRenames: [...classMap.entries()].filter(([from, to]) => from !== to).map(([from, to]) => ({ from, to })),
       renamedClasses: normalized.renamedClasses,
       updatedColorValues: normalized.updatedColorValues,
     });
@@ -364,6 +413,7 @@ export async function cleanEpubCss(
   zip: JSZip,
   targetCssFiles?: string[],
 ): Promise<CssCleanupResult> {
+  const classMap = await buildColorClassMap(zip);
   const preview = await previewEpubCss(zip);
   const targets = new Set(targetCssFiles?.length ? targetCssFiles : preview.cssFiles);
   const changedCssFiles: string[] = [];
@@ -375,7 +425,7 @@ export async function cleanEpubCss(
     if (!file) continue;
 
     const original = await file.async("text");
-    const normalized = normalizeCss(original);
+    const normalized = normalizeCss(original, classMap);
     const targetPreview = preview.previewsByFile.find((item) => item.path === path);
 
     let updated = normalized.content;
@@ -391,7 +441,7 @@ export async function cleanEpubCss(
 
   // CSS 파일 하나를 정리하더라도 클래스명 표기 규칙은 EPUB 전체에서 일치시킵니다.
   for (const path of preview.xhtmlFiles) {
-    if (await normalizeXhtml(zip, path)) changedXhtmlFiles.push(path);
+    if (await normalizeXhtml(zip, path, classMap)) changedXhtmlFiles.push(path);
   }
 
   return {

@@ -1,5 +1,5 @@
-import EpubUploader from "../components/epub/epub-uploader";
+import EpubUploader from '../components/epub/epub-uploader';
 
-export default function Home() {
+export default function WorkflowPage() {
   return <EpubUploader />;
 }

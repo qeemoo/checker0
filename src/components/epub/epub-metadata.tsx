@@ -5,21 +5,29 @@ import type { EpubMetadata } from '../../types/epub';
 
 interface Props {
   metadata: EpubMetadata;
+  draftMetadata: EpubMetadata;
+  onDraftChange: (metadata: EpubMetadata) => void;
   onSave: (metadata: EpubMetadata) => Promise<void>;
 }
 
-export default function EpubMetadataSection({ metadata, onSave }: Props) {
-  const [title, setTitle] = useState(metadata.title);
-  const [creator, setCreator] = useState(metadata.creator);
+export default function EpubMetadataSection({ metadata, draftMetadata, onDraftChange, onSave }: Props) {
+  const [title, setTitle] = useState(draftMetadata.title);
+  const [creator, setCreator] = useState(draftMetadata.creator);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const hasChanges = title.trim() !== metadata.title || creator.trim() !== metadata.creator;
 
   useEffect(() => {
-    setTitle(metadata.title);
-    setCreator(metadata.creator);
-  }, [metadata.title, metadata.creator]);
+    setTitle(draftMetadata.title);
+    setCreator(draftMetadata.creator);
+  }, [draftMetadata.title, draftMetadata.creator]);
+
+  function updateDraft(nextTitle: string, nextCreator: string) {
+    setTitle(nextTitle);
+    setCreator(nextCreator);
+    onDraftChange({ title: nextTitle, creator: nextCreator });
+  }
 
   useEffect(() => {
     if (!toast) return;
@@ -46,7 +54,7 @@ export default function EpubMetadataSection({ metadata, onSave }: Props) {
   return (
     <section className="mb-6 panel metadata-panel">
       <div className="metadata-heading-row">
-        <h2 className="text-xl font-bold">메타데이터</h2>
+        <h2 className="text-xl font-bold">메타데이터 입력</h2>
         <button
           type="submit"
           form="epub-metadata-form"
@@ -65,7 +73,7 @@ export default function EpubMetadataSection({ metadata, onSave }: Props) {
           도서 제목
           <input
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(event) => updateDraft(event.target.value, creator)}
             className="metadata-input"
           />
         </label>
@@ -73,7 +81,7 @@ export default function EpubMetadataSection({ metadata, onSave }: Props) {
           저자
           <input
             value={creator}
-            onChange={(event) => setCreator(event.target.value)}
+            onChange={(event) => updateDraft(title, event.target.value)}
             className="metadata-input"
           />
         </label>

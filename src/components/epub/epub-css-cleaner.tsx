@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { CssCleanupPreview } from '../../lib/epub/clean-css';
+import { displayEpubPath } from '../../lib/epub/epub-utils';
 
 interface Props { preview: CssCleanupPreview | null; selectedFiles: string[]; onCleanFiles: (files: string[]) => void; disabled?: boolean; error?: string }
 
@@ -23,7 +24,7 @@ export default function EpubCssCleaner({ preview, selectedFiles, onCleanFiles, d
         const isOpen = openFiles.includes(item.path);
         const selected = selectedFiles.includes(item.path);
         return <article className={`css-file-item ${isOpen ? 'is-open' : ''}`} key={item.path}>
-          <div className="css-file-row"><button type="button" className="css-file-toggle" onClick={() => toggle(item.path)} aria-expanded={isOpen}><span className={`check-triangle ${isOpen ? 'is-active' : ''}`} /><span><strong>{item.path}</strong><small>사용 색상 {item.colors.length} · 클래스 수정 {item.renamedClasses}</small></span></button><button type="button" className="compact-action" onClick={() => onCleanFiles([item.path])} disabled={disabled}>{selected ? '정리 예약됨' : '정리'}</button></div>
+          <div className="css-file-row"><button type="button" className="css-file-toggle" onClick={() => toggle(item.path)} aria-expanded={isOpen}><span className={`check-triangle ${isOpen ? 'is-active' : ''}`} /><span><strong>{displayEpubPath(item.path)}</strong><small>사용 색상 {item.colors.length} · 클래스 수정 {item.renamedClasses}</small></span></button><button type="button" className="compact-action" onClick={() => onCleanFiles([item.path])} disabled={disabled}>{selected ? '정리 예약됨' : '정리'}</button></div>
           {isOpen && <div className="css-file-preview"><div className="css-preview-caption">클래스명 변경 항목은 강조 표시됩니다.</div>{item.classRenames.length > 0 && <div className="css-renamed-class-list">{item.classRenames.map((rename) => <div key={`${rename.from}-${rename.to}`}><code>{rename.from}</code><span>→</span><mark>{rename.to}</mark></div>)}</div>}{item.previewCss ? <HighlightedPreview value={item.previewCss} /> : <p>표시할 색상 규칙이 없습니다.</p>}</div>}
         </article>;
       })}</div>

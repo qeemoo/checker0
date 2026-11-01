@@ -17,3 +17,7 @@ export function resolveRelativePath(fromFile: string, href: string): string {
   }
   return parts.join("/");
 }
+
+export function displayEpubPath(path: string): string {
+  return path.replace(/^OEBPS\//i, '');
+}

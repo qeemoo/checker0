@@ -5,8 +5,10 @@ export interface EpubMetadata {
 
 export interface MetadataTextDetail {
   file: string;
-  targetType: 'text' | 'alt';
+  targetType: 'text' | 'alt' | 'author-name' | 'copy-title' | 'copy-author' | 'copyright-symbol-text' | 'copyright-symbol-paragraph';
+  partIndex?: number;
   targetIndex: number;
+  status?: 'match' | 'mismatch' | 'suspect';
   currentText: string;
   preview: string;
   matched: boolean;
@@ -52,6 +54,23 @@ export interface LoiCheckResult {
   details: string[];
 }
 
+export interface LoiFigurePreview {
+  xhtmlFile: string;
+  file: string;
+  caption: string;
+  imageDataUrl: string;
+  imagePaths: string[];
+  id: string;
+  hasIssue?: boolean;
+}
+
+export interface SectionTypeFix {
+  file: string;
+  sectionIndex: number;
+  sectionType: 'preface' | 'chapter';
+  newFileName?: string;
+}
+
 export interface TocContentEntry {
   index: number;
   text: string;
@@ -80,12 +99,14 @@ export interface TocContentCheckResult {
   matched: number;
   unmatched: number;
   issues: TocContentIssue[];
+  tocEntries: TocContentEntry[];
+  contentEntries: TocContentEntry[];
   error?: string;
 }
 
 export interface TocContentFix {
   targetSide: "toc" | "content";
-  action: "update" | "add";
+  action: "update" | "add" | "delete";
   tocHref?: string;
   tocOriginalText?: string;
   contentOriginalText?: string;
@@ -111,6 +132,7 @@ export interface CodeIssueDetail {
   fixType: CodeIssueFixType;
   targetIndex: number;
   asideRole?: "none" | "doc-tip";
+  imageSrc?: string;
 }
 
 export interface CodeCheckItemResult {
@@ -134,6 +156,7 @@ export interface EpubMetadataChecks {
   coverCreator: CountCheckResult;
   introduceCreator: CountCheckResult;
   copyrightCreator: CountCheckResult;
+  copyrightSymbol: CountCheckResult;
   conformsTo: boolean;
   conformsToValue: string | null;
   accFix: boolean;
@@ -141,8 +164,12 @@ export interface EpubMetadataChecks {
   language: FileCheckResult;
   chapter: FileCheckResult;
   loiItems: LoiCheckResult;
+  loiFigcapMissing: LoiCheckResult;
+  loiTocMissing: LoiCheckResult;
   loiImageDuplicates: LoiCheckResult;
   loiImageNumbers: LoiCheckResult;
+  loiFigurePreviews: LoiFigurePreview[];
+  epubFilePaths: string[];
   tocContent: TocContentCheckResult;
   code: EpubCodeChecks;
 }

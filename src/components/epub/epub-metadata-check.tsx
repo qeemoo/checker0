@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { displayEpubPath } from '../../lib/epub/epub-utils';
 import type { CountCheckResult, EpubMetadataChecks, MetadataTextDetail } from '../../types/epub';
 import { CheckStatus } from './epub-check-ui';
 
-type DetailStatus = { label: string; matched: boolean };
-type DisplayDetail = { detail: MetadataTextDetail; statuses: DetailStatus[]; highlightTerms: string[] };
+type DetailStatus = { label: string; matched: boolean; status?: 'match' | 'mismatch' | 'suspect' };
+type DisplayDetail = { detail: MetadataTextDetail; statuses: DetailStatus[]; highlightTerms: string[]; suspectTerms: string[] };
 
 interface Props {
   checks: EpubMetadataChecks;
@@ -17,6 +18,7 @@ interface Props {
   onRemoveAccFix: () => Promise<void>;
   onFixText: (detail: MetadataTextDetail, replacementText: string) => Promise<void>;
   onFixAllTitles: () => Promise<void>;
+  onFixAllText: (details: MetadataTextDetail[], replacementText: string) => Promise<void>;
 }
 
 function isMetadataTextPassed(value: CountCheckResult) {
@@ -28,10 +30,23 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function HighlightedCode({ preview, terms }: { preview: string; terms: string[] }) {
+function HighlightedCode({ preview, terms, suspect, suspectTerms }: { preview: string; terms: string[]; suspect?: boolean; suspectTerms?: string[] }) {
   const uniqueTerms = [...new Set(terms.filter(Boolean))].sort((a, b) => b.length - a.length);
+  const suspectCandidates = [...new Set((suspectTerms?.length ? suspectTerms : uniqueTerms).filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (suspect && suspectCandidates.length) {
+    const compact = (value: string) => value.replace(/\s+/g, '');
+    const normalized = compact(preview);
+    const term = suspectCandidates.map(compact).find((candidate) => candidate && normalized.includes(candidate));
+    if (term) {
+      const positions: number[] = [];
+      for (let i = 0; i < preview.length; i += 1) if (!/\s/.test(preview[i])) positions.push(i);
+      const startIndex = normalized.indexOf(term);
+      const originalStart = positions[startIndex];
+      const originalEnd = positions[startIndex + term.length - 1] + 1;
+      return <>{preview.slice(0, originalStart)}<mark className="metadata-code-suspect">{preview.slice(originalStart, originalEnd)}</mark>{preview.slice(originalEnd)}</>;
+    }
+  }
   if (!uniqueTerms.length) return <>{preview}</>;
-
   const expression = new RegExp(`(${uniqueTerms.map(escapeRegExp).join('|')})`, 'gi');
   const pieces = preview.split(expression);
   return <>{pieces.map((piece, index) => uniqueTerms.some((term) => term.toLowerCase() === piece.toLowerCase())
@@ -41,9 +56,9 @@ function HighlightedCode({ preview, terms }: { preview: string; terms: string[] 
 
 function DetailStatusPill({ status }: { status: DetailStatus }) {
   return (
-    <span className={`metadata-detail-status ${status.matched ? 'is-match' : 'is-mismatch'}`}>
+    <span className={`metadata-detail-status ${status.status === 'suspect' ? 'is-suspect' : status.matched ? 'is-match' : 'is-mismatch'}`}>
       <span aria-hidden="true">{status.matched ? '✓' : '!'}</span>
-      {status.label} {status.matched ? '일치' : '불일치'}
+      {status.label} {status.status === 'suspect' ? '확인 필요' : status.matched ? '일치' : '불일치'}
     </span>
   );
 }
@@ -59,20 +74,21 @@ function MetadataDetailCard({
 }) {
   const { detail, statuses } = item;
   const [value, setValue] = useState(detail.currentText);
-  const cleanPreview = detail.preview.replace(/\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '');
-  const key = `${detail.file}:${detail.targetType}:${detail.targetIndex}`;
+  const cleanPreview = detail.preview.replace(/\s+xmlns(?::[\w.-]+)?=(['"])[\s\S]*?\1/g, '');
+  const key = `${detail.file}:${detail.targetType}:${detail.targetIndex}:${detail.partIndex ?? ''}`;
 
   useEffect(() => setValue(detail.currentText), [detail.currentText]);
 
   return (
     <article className="metadata-check-detail" key={key}>
       <div className="metadata-detail-heading">
-        <strong className="metadata-check-file">{detail.file}</strong>
+        <strong className="metadata-check-file">{displayEpubPath(detail.file)}</strong>
         <div className="metadata-detail-statuses">
-          {statuses.map((status) => <DetailStatusPill key={status.label} status={status} />)}
+          {statuses.map((status) => <DetailStatusPill key={status.label} status={detail.targetType === 'copyright-symbol-text' ? { ...status, label: '저작권 표기' } : status} />)}
         </div>
       </div>
-      <pre className="metadata-check-code"><code><HighlightedCode preview={cleanPreview} terms={item.highlightTerms} /></code></pre>
+      <pre className="metadata-check-code"><code><HighlightedCode preview={cleanPreview} terms={item.highlightTerms} suspect={statuses.some((status) => status.status === 'suspect')} suspectTerms={item.suspectTerms} /></code></pre>
+      {detail.targetType === 'copyright-symbol-text' && /[Ⓒⓒ]/u.test(detail.preview) && <p className="metadata-check-help">원형 C 기호는 결과 EPUB에서 © 기호로 자동 수정됩니다.</p>}
       <label className="metadata-check-edit-label">
         수정할 내용
         <textarea
@@ -103,17 +119,19 @@ function mergeCoverDetails(title: CountCheckResult, creator: CountCheckResult, t
   const merged = new Map<string, DisplayDetail>();
   for (const [label, result] of [['제목', title], ['저자', creator]] as const) {
     for (const detail of result.details ?? []) {
-      const key = `${detail.file}:${detail.targetType}:${detail.targetIndex}`;
+      const key = `${detail.file}:${detail.targetType}:${detail.targetIndex}:${detail.partIndex ?? ''}`;
       const current = merged.get(key);
-      if (current) current.statuses.push({ label, matched: detail.matched });
-      else merged.set(key, { detail, statuses: [{ label, matched: detail.matched }], highlightTerms: [titleText, creatorText] });
+      if (current) {
+        current.statuses.push({ label, matched: detail.matched, status: detail.status });
+        if (detail.status === 'suspect') current.suspectTerms.push(label === '제목' ? titleText : creatorText);
+      } else merged.set(key, { detail, statuses: [{ label, matched: detail.matched, status: detail.status }], highlightTerms: [titleText, creatorText], suspectTerms: detail.status === 'suspect' ? [label === '제목' ? titleText : creatorText] : [] });
     }
   }
   return [...merged.values()];
 }
 
 function resultDetails(label: string, value: CountCheckResult, expectedText: string): DisplayDetail[] {
-  return (value.details ?? []).map((detail) => ({ detail, statuses: [{ label, matched: detail.matched }], highlightTerms: [expectedText] }));
+  return (value.details ?? []).map((detail) => ({ detail, statuses: [{ label, matched: detail.matched, status: detail.status }], highlightTerms: [expectedText], suspectTerms: detail.status === 'suspect' ? [expectedText] : [] }));
 }
 
 function MetadataSubsection({
@@ -122,20 +140,23 @@ function MetadataSubsection({
   emptyText,
   disabled,
   onFix,
+  onApplyAll,
 }: {
   label: string;
   items: DisplayDetail[];
   emptyText: string;
   disabled: boolean;
   onFix: (detail: MetadataTextDetail, replacement: string) => Promise<void>;
+  onApplyAll?: () => Promise<void>;
 }) {
   return (
     <section className="metadata-text-subsection">
       <div className="metadata-text-subsection-heading">
         <h4>{label}</h4>
+        {onApplyAll && <button type="button" className="metadata-check-fix-button metadata-apply-metadata-button" disabled={disabled || items.length === 0} onClick={() => void onApplyAll()}>메타데이터 값 적용</button>}
       </div>
       {items.length ? items.map((item) => (
-        <MetadataDetailCard key={`${item.detail.file}:${item.detail.targetType}:${item.detail.targetIndex}`} item={item} disabled={disabled} onFix={onFix} />
+        <MetadataDetailCard key={`${item.detail.file}:${item.detail.targetType}:${item.detail.targetIndex}:${item.detail.partIndex ?? ''}`} item={item} disabled={disabled} onFix={onFix} />
       )) : <p className="metadata-check-empty">{emptyText}</p>}
     </section>
   );
@@ -151,6 +172,7 @@ export default function EpubMetadataCheck({
   onRemoveAccFix,
   onFixText,
   onFixAllTitles,
+  onFixAllText,
 }: Props) {
   const [expanded, setExpanded] = useState<'accessibility' | 'accfix' | 'title' | 'cover' | 'copyright' | 'introduce' | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; message: string } | null>(null);
@@ -220,7 +242,7 @@ export default function EpubMetadataCheck({
           </button>
           {expanded === 'accfix' && (
             <div className="metadata-check-inline-detail">
-              {checks.accFixTags.length ? checks.accFixTags.map((tag, index) => <pre className="metadata-check-code" key={index}>{tag.replace(/\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '')}</pre>) : <p className="metadata-check-help">삭제 대상 태그가 없습니다.</p>}
+              {checks.accFixTags.length ? checks.accFixTags.map((tag, index) => <pre className="metadata-check-code" key={index}>{tag.replace(/\s+xmlns(?::[\w.-]+)?=(['"])[\s\S]*?\1/g, '')}</pre>) : <p className="metadata-check-help">삭제 대상 태그가 없습니다.</p>}
               {!checks.accFix && <div className="metadata-check-convert-row"><span>ACC-fix 메타데이터 태그</span><button type="button" className="metadata-check-fix-button" disabled={disabled || busy} onClick={() => void runAction(onRemoveAccFix, '적용되었습니다.')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M8 6V4h4v2m-6 0 1 10h6l1-10" /></svg>삭제</button></div>}
             </div>
           )}
@@ -234,7 +256,7 @@ export default function EpubMetadataCheck({
             <span className="metadata-check-bullet" /><span className="metadata-check-label">표지</span><CheckStatus ok={coverOk} />
           </button>
           {expanded === 'cover' && <div className="metadata-check-detail-list">
-            <MetadataSubsection label="표지" items={coverItems} emptyText="표지 이미지의 alt 정보를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} />
+            <MetadataSubsection label="표지 이미지 alt" items={coverItems} emptyText="표지 이미지가 없습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} />
           </div>}
         </div>
         <div className="metadata-check-item">
@@ -242,8 +264,8 @@ export default function EpubMetadataCheck({
             <span className="metadata-check-bullet" /><span className="metadata-check-label">저작권</span><CheckStatus ok={copyrightOk} />
           </button>
           {expanded === 'copyright' && <div className="metadata-check-detail-list">
-            <MetadataSubsection label="제목" items={resultDetails('제목', checks.copyrightTitle, metadataTitle)} emptyText="제목과 일치하는 텍스트를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} />
-            <MetadataSubsection label="저자" items={resultDetails('저자', checks.copyrightCreator, metadataCreator)} emptyText="저자와 일치하는 텍스트를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} />
+            <MetadataSubsection label="제목 · copy_title" items={resultDetails('제목', checks.copyrightTitle, metadataTitle)} emptyText="copy_title 클래스를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} onApplyAll={() => runAction(() => onFixAllText((checks.copyrightTitle.details ?? []), metadataTitle), '메타데이터 제목을 적용했습니다.')} />
+            <MetadataSubsection label="저자 · 지은이 / 저작권 표기" items={resultDetails('저자', checks.copyrightCreator, metadataCreator)} emptyText="지은이 또는 저작권 표기가 포함된 항목을 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} onApplyAll={() => runAction(() => onFixAllText((checks.copyrightCreator.details ?? []).filter((detail) => detail.targetType === 'copy-author' || detail.targetType === 'copyright-symbol-text'), metadataCreator), '메타데이터 작가명을 적용했습니다.')} />
           </div>}
         </div>
         <div className="metadata-check-item">
@@ -251,7 +273,7 @@ export default function EpubMetadataCheck({
             <span className="metadata-check-bullet" /><span className="metadata-check-label">소개</span><CheckStatus ok={introduceOk} />
           </button>
           {expanded === 'introduce' && <div className="metadata-check-detail-list">
-            <MetadataSubsection label="저자" items={resultDetails('저자', checks.introduceCreator, metadataCreator)} emptyText="저자와 일치하는 텍스트를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} />
+            <MetadataSubsection label="저자 · author-name" items={resultDetails('저자', checks.introduceCreator, metadataCreator)} emptyText="author-name 클래스를 가진 p 태그를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} onApplyAll={() => runAction(() => onFixAllText((checks.introduceCreator.details ?? []), metadataCreator), '메타데이터 작가명을 적용했습니다.')} />
           </div>}
         </div>
       </div>
@@ -273,7 +295,7 @@ export default function EpubMetadataCheck({
               <p className="metadata-check-empty metadata-title-passed">모든 XHTML title이 메타데이터 제목과 일치합니다.</p>
             ) : checks.titleXhtml.details.filter((detail) => !detail.matched).map((detail) => (
               <div className="metadata-title-detail" key={detail.file}>
-                <strong className="metadata-title-file">{detail.file}</strong>
+                <strong className="metadata-title-file">{displayEpubPath(detail.file)}</strong>
                 <span className="metadata-title-current">{detail.title || '(title 없음)'}</span>
               </div>
             ))}

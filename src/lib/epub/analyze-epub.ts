@@ -29,16 +29,6 @@ const EXCLUDED_CHAPTER_FILES = [
   'toc.xhtml',
   'introduce.xhtml',
   'backcover.xhtml',
-  'preface.xhtml',
-  'preface1.xhtml',
-  'preface2.xhtml',
-  'preface3.xhtml',
-  'preface4.xhtml',
-  'preface5.xhtml',
-  'preface6.xhtml',
-  'preface7.xhtml',
-  'preface8.xhtml',
-  'preface9.xhtml',
 ];
 
 function findFile(files: { path: string; document: Document }[], name: string) {
@@ -50,12 +40,17 @@ function bodyText(document: Document): string {
 function containsMetadataText(document: Document | undefined, value: string): boolean {
   return Boolean(value && document && bodyText(document).includes(value));
 }
-function imageAltMatches(document: Document | undefined, value: string): number {
-  if (!document || !value) return 0;
-  return Array.from(document.querySelectorAll('img[alt]')).filter((image) =>
-    (image.getAttribute('alt') ?? '').includes(value),
-  ).length;
+function compactText(value: string): string {
+  return normalizeText(value).replace(/\s+/g, '');
 }
+
+function textContainsExpected(actual: string, expected: string): { matched: boolean; status: 'match' | 'mismatch' | 'suspect' } {
+  if (!expected) return { matched: false, status: 'mismatch' };
+  if (normalizeText(actual).includes(normalizeText(expected))) return { matched: true, status: 'match' };
+  if (compactText(actual).includes(compactText(expected))) return { matched: false, status: 'suspect' };
+  return { matched: false, status: 'mismatch' };
+}
+
 function checkTitleXhtml(
   files: { path: string; document: Document }[],
   title: string,
@@ -80,44 +75,169 @@ function textNodeDetails(
   file: { path: string; document: Document } | undefined,
   value: string,
 ): MetadataTextDetail[] {
-  if (!file || !value) return [];
+  if (!file) return [];
   const walker = file.document.createTreeWalker(file.document.body ?? file.document, NodeFilter.SHOW_TEXT);
   const nodes: Text[] = [];
   let node: Node | null;
   while ((node = walker.nextNode())) {
     if ((node.textContent ?? '').trim()) nodes.push(node as Text);
   }
-  const matching = nodes.filter((item) => (item.textContent ?? '').includes(value));
-  const candidates = matching.length ? matching : nodes.filter((item) => {
+  const matching = nodes.filter((item) => textContainsExpected(item.textContent ?? '', value).matched || textContainsExpected(item.textContent ?? '', value).status === 'suspect');
+  const candidates = value && matching.length ? matching : nodes.filter((item) => {
     const parent = item.parentElement;
     return Boolean(parent && /^(P|DIV|SPAN|H[1-6]|LI|FIGCAPTION)$/.test(parent.tagName));
   }).slice(0, 20);
   return candidates.map((item) => {
     const targetIndex = nodes.indexOf(item);
+    const comparison = textContainsExpected(item.textContent ?? '', value);
     return {
       file: file.path,
       targetType: 'text' as const,
       targetIndex,
       currentText: item.textContent ?? '',
       preview: item.parentElement?.outerHTML ?? item.textContent ?? '',
-      matched: (item.textContent ?? '').includes(value),
+      matched: comparison.matched,
+      status: comparison.status,
     };
   });
 }
 
-function coverAltDetails(
+function allImageAltDetails(
   file: { path: string; document: Document } | undefined,
   value: string,
+  isCreator = false,
 ): MetadataTextDetail[] {
   if (!file) return [];
-  return Array.from(file.document.querySelectorAll('img[alt]')).map((image, targetIndex) => ({
-    file: file.path,
-    targetType: 'alt' as const,
-    targetIndex,
-    currentText: image.getAttribute('alt') ?? '',
-    preview: image.outerHTML,
-    matched: Boolean(value && (image.getAttribute('alt') ?? '').includes(value)),
-  }));
+  return Array.from(file.document.querySelectorAll('img')).map((image, targetIndex) => {
+    const currentText = image.getAttribute('alt') ?? '';
+    const comparison = textContainsExpected(currentText, value);
+    const status = isCreator && /지음/.test(currentText) && comparison.status === 'mismatch' ? 'suspect' : comparison.status;
+    return {
+      file: file.path,
+      targetType: 'alt' as const,
+      targetIndex,
+      currentText,
+      preview: image.outerHTML,
+      matched: comparison.matched,
+      status,
+    };
+  });
+}
+
+function scopedElementTextDetails(
+  file: { path: string; document: Document } | undefined,
+  selector: string,
+  expected: string,
+  targetType: 'copy-title' | 'copy-author' = 'copy-title',
+  getText?: (element: Element) => string,
+): MetadataTextDetail[] {
+  if (!file) return [];
+  return Array.from(file.document.querySelectorAll(selector)).map((element, targetIndex) => {
+    const currentText = getText ? getText(element) : (element.textContent ?? '').trim();
+    const comparison = textContainsExpected(currentText, expected);
+    return {
+      file: file.path,
+      targetType,
+      targetIndex,
+      currentText,
+      preview: element.outerHTML,
+      matched: comparison.matched,
+      status: comparison.status,
+    };
+  });
+}
+
+function splitAuthorNames(value: string): string[] {
+  return value.split(/[·•ㆍ,，、]/u).map((item) => normalizeText(item)).filter(Boolean);
+}
+
+function introAuthorDetails(
+  file: { path: string; document: Document } | undefined,
+  creator: string,
+): MetadataTextDetail[] {
+  if (!file) return [];
+  const expectedAuthors = splitAuthorNames(creator);
+  return Array.from(file.document.querySelectorAll('p.author-name')).flatMap((paragraph, targetIndex) => {
+    const firstSpan = Array.from(paragraph.children).find((child) => child.tagName.toLowerCase() === 'span');
+    const textNode = Array.from(paragraph.childNodes).find((child) => child.nodeType === Node.TEXT_NODE && (child.textContent ?? '').trim());
+    const currentText = normalizeText(textNode?.textContent ?? (firstSpan ? '' : paragraph.textContent ?? ''));
+    const parsedAuthors = splitAuthorNames(currentText);
+    const authors = parsedAuthors.length ? parsedAuthors : [''];
+    const hasSeparators = /[·•ㆍ,，、]/u.test(currentText);
+    const multipleExpected = expectedAuthors.length > 1;
+    return authors.map((author, partIndex) => {
+      const matched = expectedAuthors.some((expected) => compactText(expected) === compactText(author));
+      const uncertainMultiple = !hasSeparators && multipleExpected && !matched;
+      return {
+        file: file.path,
+        targetType: 'author-name' as const,
+        targetIndex,
+        partIndex: hasSeparators ? partIndex : undefined,
+        currentText: author,
+        preview: paragraph.outerHTML,
+        matched,
+        status: matched ? 'match' as const : uncertainMultiple ? 'suspect' as const : 'mismatch' as const,
+      };
+    });
+  });
+}
+
+function copyrightTitleDetails(file: { path: string; document: Document } | undefined, title: string): MetadataTextDetail[] {
+  return scopedElementTextDetails(file, '.copy_title', title, 'copy-title');
+}
+
+function copyrightAuthorDetails(file: { path: string; document: Document } | undefined, creator: string): MetadataTextDetail[] {
+  if (!file) return [];
+  const details: MetadataTextDetail[] = [];
+  const authorValues = Array.from(file.document.querySelectorAll('.copy_b'))
+    .filter((element) => normalizeText(element.textContent).includes('지은이'))
+    .map((label) => label.nextElementSibling)
+    .filter((element): element is Element => Boolean(element?.classList.contains('copy_t')));
+
+  authorValues.forEach((element, targetIndex) => {
+    const currentText = (element.textContent ?? '').trim();
+    const comparison = textContainsExpected(currentText, creator);
+    details.push({ file: file.path, targetType: 'copy-author', targetIndex, currentText, preview: element.parentElement?.outerHTML ?? element.outerHTML, matched: comparison.matched, status: comparison.status === 'mismatch' ? 'suspect' : comparison.status });
+  });
+
+  const copyrightParagraphs = Array.from(file.document.querySelectorAll('p')).filter((paragraph) => {
+    const text = paragraph.textContent ?? '';
+    return /글/.test(text) && (/[©Ⓒⓒ]/u.test(text) || (creator && compactText(text).includes(compactText(creator))));
+  });
+  copyrightParagraphs.forEach((paragraph, targetIndex) => {
+    const walker = file.document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+    let textNode: Node | null = null;
+    let symbolNode: Node | null = null;
+    let authorNode: Node | null = null;
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      if (!symbolNode && /[©Ⓒⓒ]/u.test(node.textContent ?? '')) symbolNode = node;
+      if (!authorNode && creator && compactText(node.textContent ?? '').includes(compactText(creator))) authorNode = node;
+    }
+    textNode = authorNode ?? symbolNode;
+    const currentText = textNode?.textContent ?? paragraph.textContent ?? '';
+    const paragraphText = paragraph.textContent ?? '';
+    const authorText = paragraphText.replace(/[©Ⓒⓒ]/gu, '').replace(/[()（）]/gu, '').trim();
+    const comparison = textContainsExpected(authorText, creator);
+    const correctSymbol = /©/u.test(paragraphText) && !/[Ⓒⓒ]/u.test(paragraphText);
+    const matched = comparison.matched && correctSymbol;
+    const status = !correctSymbol ? 'mismatch' as const : comparison.status === 'mismatch' ? 'suspect' as const : comparison.status;
+    details.push({ file: file.path, targetType: 'copyright-symbol-text', targetIndex: findTextNodeIndex(file.document, textNode), currentText, preview: paragraph.outerHTML, matched, status });
+  });
+  return details;
+}
+
+function findTextNodeIndex(document: Document, target: Node | null): number {
+  if (!target) return -1;
+  const walker = document.createTreeWalker(document.body ?? document, NodeFilter.SHOW_TEXT);
+  let index = 0;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (!(node.textContent ?? '').trim()) continue;
+    if (node === target) return index;
+    index += 1;
+  }
+  return -1;
 }
 
 function checkLanguage(files: { path: string; document: Document }[]): FileCheckResult {
@@ -156,7 +276,7 @@ function checkChapter(files: { path: string; document: Document }[]): FileCheckR
       unmatchedFiles.push(file.path);
       unmatchedDetails.push({
         file: file.path,
-        sectionIndex: 0,
+        sectionIndex: 1,
         epubType: null,
         role: null,
         reasons: ['body 바로 아래에 section 요소가 없습니다.'],
@@ -168,9 +288,12 @@ function checkChapter(files: { path: string; document: Document }[]): FileCheckR
       total += 1;
       const epubType = section.getAttributeNS(EPUB_NS, 'type') ?? section.getAttribute('epub:type');
       const role = section.getAttribute('role');
+      const isPrefaceFile = /^preface[^/]*\.xhtml$/i.test(getFileName(file.path));
+      const expectedType = isPrefaceFile ? 'preface' : 'chapter';
+      const expectedRole = isPrefaceFile ? 'doc-preface' : 'doc-chapter';
       const reasons: string[] = [];
-      if (epubType !== 'chapter') reasons.push('epub:type이 "chapter"가 아닙니다.');
-      if (role !== 'doc-chapter') reasons.push('role이 "doc-chapter"가 아닙니다.');
+      if (epubType !== expectedType) reasons.push(`epub:type이 "${expectedType}"가 아닙니다.`);
+      if (role !== expectedRole) reasons.push(`role이 "${expectedRole}"가 아닙니다.`);
       if (reasons.length === 0) matched += 1;
       else {
         if (!unmatchedFiles.includes(file.path)) unmatchedFiles.push(file.path);
@@ -207,6 +330,9 @@ function makeCodeCheck(total: number, details: CodeIssueDetail[]): CodeCheckItem
 }
 
 function hasBalancedCurlyQuotes(text: string): boolean {
+  // 대화문에는 곡선형 여닫는 따옴표를 사용한다. 직선형 따옴표는
+  // 쌍이 맞더라도 수정 대상으로 처리해 자동 수정 단계에서 변환한다.
+  if (text.includes('"')) return false;
   for (const [open, close] of [['“', '”'], ['‘', '’']]) {
     let expectingClose = false;
     for (const character of text) {
@@ -283,6 +409,7 @@ function checkCodeStructure(files: { path: string; document: Document }[]): Epub
           html: elementHtml(image),
           fixType: 'image',
           targetIndex,
+          imageSrc: image.getAttribute('src') ?? '',
         });
       }
     });
@@ -349,30 +476,31 @@ export async function analyzeEpub(file: File): Promise<EpubAnalysisResult> {
   const checks: EpubMetadataChecks = {
     titleXhtml: checkTitleXhtml(files, title),
     coverTitle: {
-      exists: imageAltMatches(cover?.document, title) > 0,
-      count: imageAltMatches(cover?.document, title),
-      details: coverAltDetails(cover, title),
+      exists: allImageAltDetails(cover, title).length > 0 && allImageAltDetails(cover, title).every((detail) => detail.matched),
+      count: allImageAltDetails(cover, title).filter((detail) => detail.matched).length,
+      details: allImageAltDetails(cover, title),
     },
     copyrightTitle: {
-      exists: containsMetadataText(copyright?.document, title),
-      count: Number(containsMetadataText(copyright?.document, title)),
-      details: textNodeDetails(copyright, title),
+      exists: copyrightTitleDetails(copyright, title).length > 0 && copyrightTitleDetails(copyright, title).every((detail) => detail.matched),
+      count: copyrightTitleDetails(copyright, title).filter((detail) => detail.matched).length,
+      details: copyrightTitleDetails(copyright, title),
     },
     coverCreator: {
-      exists: imageAltMatches(cover?.document, creator) > 0,
-      count: imageAltMatches(cover?.document, creator),
-      details: coverAltDetails(cover, creator),
+      exists: allImageAltDetails(cover, creator, true).length > 0 && allImageAltDetails(cover, creator, true).every((detail) => detail.matched),
+      count: allImageAltDetails(cover, creator, true).filter((detail) => detail.matched).length,
+      details: allImageAltDetails(cover, creator, true),
     },
     introduceCreator: {
-      exists: containsMetadataText(introduce?.document, creator),
-      count: Number(containsMetadataText(introduce?.document, creator)),
-      details: textNodeDetails(introduce, creator),
+      exists: introAuthorDetails(introduce, creator).length > 0 && introAuthorDetails(introduce, creator).every((detail) => detail.matched),
+      count: introAuthorDetails(introduce, creator).filter((detail) => detail.matched).length,
+      details: introAuthorDetails(introduce, creator),
     },
     copyrightCreator: {
-      exists: containsMetadataText(copyright?.document, creator),
-      count: Number(containsMetadataText(copyright?.document, creator)),
-      details: textNodeDetails(copyright, creator),
+      exists: copyrightAuthorDetails(copyright, creator).length > 0 && copyrightAuthorDetails(copyright, creator).every((detail) => detail.matched),
+      count: copyrightAuthorDetails(copyright, creator).filter((detail) => detail.matched).length,
+      details: copyrightAuthorDetails(copyright, creator),
     },
+    copyrightSymbol: { exists: true, count: 0, details: [] },
     conformsTo,
     conformsToValue,
     accFix,
@@ -380,8 +508,12 @@ export async function analyzeEpub(file: File): Promise<EpubAnalysisResult> {
     language: checkLanguage(files),
     chapter: checkChapter(files),
     loiItems: loi.loiItems,
+    loiFigcapMissing: loi.loiFigcapMissing,
+    loiTocMissing: loi.loiTocMissing,
     loiImageDuplicates: loi.loiImageDuplicates,
     loiImageNumbers: loi.loiImageNumbers,
+    loiFigurePreviews: loi.loiFigurePreviews,
+    epubFilePaths: Object.keys(parsed.zip.files).filter((path) => !parsed.zip.files[path].dir),
     tocContent: checkTocContent(files),
     code: checkCodeStructure(files),
   };

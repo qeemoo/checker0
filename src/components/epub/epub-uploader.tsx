@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { displayEpubPath } from '../../lib/epub/epub-utils';
 import JSZip from 'jszip';
 
 import type {
+  SectionTypeFix,
   CodeIssueDetail,
   EpubAnalysisResult,
   EpubMetadata,
@@ -21,6 +23,7 @@ import EpubCodeResults from './epub-code-results';
 import EpubTocContentResults from './epub-toc-content-results';
 import EpubCssCleaner from './epub-css-cleaner';
 import EpubFinalReport from './epub-final-report';
+import EpubImageAssets from './epub-image-assets';
 
 const CONTAINER_PATH = 'META-INF/container.xml';
 const OPF_NS = 'http://www.idpf.org/2007/opf';
@@ -36,6 +39,15 @@ interface MetadataTextFix extends MetadataTextDetail {
   replacementText: string;
 }
 
+interface LoiFigureFix {
+  xhtmlFile: string;
+  id: string;
+  originalCaption?: string;
+  imagePath?: string;
+  caption?: string;
+  imageFile?: File;
+}
+
 type WorkflowStep =
   | 'metadata'
   | 'metadata-check'
@@ -47,14 +59,14 @@ type WorkflowStep =
   | 'download';
 
 const WORKFLOW_STEPS: { id: WorkflowStep; label: string; path: string }[] = [
-  { id: 'metadata', label: '메타데이터', path: '/metadata' },
+  { id: 'metadata', label: '메타데이터 입력', path: '/metadata' },
   { id: 'metadata-check', label: '메타데이터 검사', path: '/metadata-check' },
   { id: 'structure', label: '구조 및 언어', path: '/structure' },
   { id: 'loi', label: '이미지 목차', path: '/loi' },
   { id: 'toc', label: '목차', path: '/toc' },
   { id: 'code', label: '코드', path: '/code' },
   { id: 'css', label: 'CSS', path: '/css' },
-  { id: 'download', label: '다운로드', path: '/download' },
+  { id: 'download', label: '완료', path: '/download' },
 ];
 
 function stepFromPath(pathname: string): WorkflowStep {
@@ -69,6 +81,8 @@ export default function EpubUploader() {
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<EpubAnalysisResult | null>(null);
   const [metadata, setMetadata] = useState<EpubMetadata>({ title: '', creator: '' });
+  const [metadataDraft, setMetadataDraft] = useState<EpubMetadata>({ title: '', creator: '' });
+  const [metadataLeaveTarget, setMetadataLeaveTarget] = useState<WorkflowStep | null>(null);
   const [originalMetadata, setOriginalMetadata] = useState<EpubMetadata>({
     title: '',
     creator: '',
@@ -76,6 +90,7 @@ export default function EpubUploader() {
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
   const [accessibilityModified, setAccessibilityModified] = useState(false);
   const [cssPreview, setCssPreview] = useState<CssCleanupPreview | null>(null);
   const [cssPreviewError, setCssPreviewError] = useState('');
@@ -85,6 +100,7 @@ export default function EpubUploader() {
   const [tocFixes, setTocFixes] = useState<TocContentFix[]>([]);
   const [tocDraftEdits, setTocDraftEdits] = useState<{ issueId: string; tocText: string; contentText: string }[]>([]);
   const [tocDraftChanged, setTocDraftChanged] = useState(false);
+  const [tocExcludedTitles, setTocExcludedTitles] = useState<string[]>(['작가 소개', '판권지', '글의 순서']);
   const [fixingTocId, setFixingTocId] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<WorkflowStep>('metadata');
   const [metadataTextFixes, setMetadataTextFixes] = useState<MetadataTextFix[]>([]);
@@ -92,8 +108,15 @@ export default function EpubUploader() {
   const [removeAccFixRequested, setRemoveAccFixRequested] = useState(false);
   const [titleXhtmlFixRequested, setTitleXhtmlFixRequested] = useState(false);
   const [languageFixRequested, setLanguageFixRequested] = useState(false);
+  const [sectionTypeFixes, setSectionTypeFixes] = useState<SectionTypeFix[]>([]);
+  const [loiFigureFixes, setLoiFigureFixes] = useState<LoiFigureFix[]>([]);
+  const [deletedImagePaths, setDeletedImagePaths] = useState<string[]>([]);
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [showAppliedItems, setShowAppliedItems] = useState(false);
+
+  function notifySaved(message = '저장되었습니다.') { setToast(message); }
+
+  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 2200); return () => window.clearTimeout(timer); }, [toast]);
 
   const hasMetadataChanges =
     metadata.title !== originalMetadata.title || metadata.creator !== originalMetadata.creator;
@@ -107,11 +130,62 @@ export default function EpubUploader() {
     accessibilityFixRequested ||
     removeAccFixRequested ||
     titleXhtmlFixRequested ||
-    languageFixRequested;
+    languageFixRequested ||
+    sectionTypeFixes.length > 0 ||
+    loiFigureFixes.length > 0 || deletedImagePaths.length > 0;
 
   const currentStepIndex = WORKFLOW_STEPS.findIndex((step) => step.id === currentStep);
 
-  async function navigateToStep(step: WorkflowStep, replace = false) {
+  function hasStepError(step: WorkflowStep): boolean {
+    if (!analysis) return false;
+    const checks = analysis.checks;
+    const textCheckFailed = (value: { exists: boolean; details?: { matched: boolean }[] }) => {
+      const details = value.details ?? [];
+      return details.length > 0 ? details.some((detail) => !detail.matched) : !value.exists;
+    };
+    switch (step) {
+      case 'metadata-check':
+        return !checks.conformsTo || !checks.accFix || checks.titleXhtml.unmatched > 0 ||
+          textCheckFailed(checks.coverTitle) || textCheckFailed(checks.coverCreator) ||
+          textCheckFailed(checks.copyrightTitle) || textCheckFailed(checks.copyrightCreator) ||
+          textCheckFailed(checks.introduceCreator);
+      case 'structure':
+        return checks.language.unmatched > 0 || checks.chapter.unmatched > 0;
+      case 'loi':
+        return checks.loiImageNumbers.unmatched > 0 || checks.loiFigcapMissing.unmatched > 0 ||
+          checks.loiTocMissing.unmatched > 0 || checks.loiImageDuplicates.unmatched > 0;
+      case 'toc':
+        return Boolean(checks.tocContent.error) || checks.tocContent.unmatched > 0;
+      case 'code':
+        return checks.code.dialogue.unmatched > 0 || checks.code.asideRole.unmatched > 0 ||
+          checks.code.imageRole.unmatched > 0 || checks.code.footnote.unmatched > 0;
+      case 'css':
+        return Boolean(cssPreviewError);
+      default:
+        return false;
+    }
+  }
+
+  const appliedGroups = [
+    ...(hasMetadataChanges ? [{ title: '도서 정보', count: 1, description: '제목과 저자 메타데이터를 업데이트했습니다.' }] : []),
+    ...(accessibilityModified || accessibilityFixRequested ? [{ title: '접근성', count: 1, description: 'EPUB 접근성 표기를 WCAG 2.2 AA 기준으로 설정했습니다.' }] : []),
+    ...(removeAccFixRequested ? [{ title: 'ACC-fix', count: 1, description: '불필요한 ACC-fix 메타데이터를 제거했습니다.' }] : []),
+    ...((titleXhtmlFixRequested || languageFixRequested) ? [{ title: '문서 정보', count: Number(titleXhtmlFixRequested) + Number(languageFixRequested), description: '문서 제목과 언어 설정을 수정했습니다.' }] : []),
+    ...(sectionTypeFixes.length ? [{ title: '문서 구조', count: sectionTypeFixes.length, description: '문서 구획 유형을 지정했습니다.' }] : []),
+    ...(metadataTextFixes.length ? [{ title: '메타데이터 표기', count: metadataTextFixes.length, description: '저작권·소개 페이지의 제목과 저자 표기를 수정했습니다.' }] : []),
+    ...(cleanedCssFiles.length ? [{ title: 'CSS', count: cleanedCssFiles.length, description: '선택한 CSS 파일의 불필요한 스타일을 정리했습니다.' }] : []),
+    ...(codeFixes.length ? [{ title: '코드', count: codeFixes.length, description: '대화문·글상자·이미지·각주 코드의 의미와 접근성 표기를 수정했습니다.' }] : []),
+    ...(tocFixes.length ? [{ title: '목차', count: tocFixes.length, description: 'TOC와 본문 목차 텍스트를 일치시켰습니다.' }] : []),
+    ...(loiFigureFixes.length ? [{ title: '이미지 목차', count: loiFigureFixes.length, description: '이미지 목차 설명 또는 이미지를 수정했습니다.' }] : []),
+    ...(deletedImagePaths.length ? [{ title: '이미지 삭제', count: deletedImagePaths.length, description: '선택한 이미지 파일을 EPUB에서 삭제했습니다.' }] : []),
+  ];
+  const appliedTotal = appliedGroups.reduce((sum, group) => sum + group.count, 0);
+
+  async function navigateToStep(step: WorkflowStep, replace = false, bypassMetadataGuard = false) {
+    if (!replace && !bypassMetadataGuard && currentStep === 'metadata' && (metadataDraft.title.trim() !== metadata.title || metadataDraft.creator.trim() !== metadata.creator) && step !== 'metadata') {
+      setMetadataLeaveTarget(step);
+      return;
+    }
     if (!replace && currentStep === 'toc' && tocDraftChanged) {
       const saveChanges = window.confirm('목차 수정사항을 저장하시겠습니까?');
       if (saveChanges) {
@@ -145,6 +219,26 @@ export default function EpubUploader() {
     }
   }
 
+  async function saveMetadataAndContinue() {
+    if (!metadataLeaveTarget) return;
+    const target = metadataLeaveTarget;
+    try {
+      await updateMetadata({ title: metadataDraft.title.trim(), creator: metadataDraft.creator.trim() });
+      setMetadataLeaveTarget(null);
+      await navigateToStep(target, false, true);
+    } catch {
+      // updateMetadata가 오류 메시지를 표시하므로 모달은 유지합니다.
+    }
+  }
+
+  async function discardMetadataAndContinue() {
+    if (!metadataLeaveTarget) return;
+    const target = metadataLeaveTarget;
+    setMetadataDraft(metadata);
+    setMetadataLeaveTarget(null);
+    await navigateToStep(target, false, true);
+  }
+
   useEffect(() => {
     function handlePopState() {
       if (originalFile) setCurrentStep(stepFromPath(window.location.pathname));
@@ -156,11 +250,11 @@ export default function EpubUploader() {
   useEffect(() => {
     if (currentStep !== 'download' || !originalFile) return;
     let active = true;
-    createModifiedEpub(originalFile, metadata, cleanedCssFiles, codeFixes, tocFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested)
+    createModifiedEpub(originalFile, metadata, cleanedCssFiles, codeFixes, tocFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested, sectionTypeFixes, loiFigureFixes, deletedImagePaths)
       .then((result) => { if (active) setReportFile(new File([result.blob], originalFile.name, { type: 'application/epub+zip' })); })
       .catch((err) => { console.error('완료 통계용 EPUB 생성 실패:', err); if (active) setReportFile(originalFile); });
     return () => { active = false; };
-  }, [currentStep, originalFile, metadata, cleanedCssFiles, codeFixes, tocFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested]);
+  }, [currentStep, originalFile, metadata, cleanedCssFiles, codeFixes, tocFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested, sectionTypeFixes, loiFigureFixes, deletedImagePaths]);
 
   async function handleFile(file: File) {
     if (!file.name.toLowerCase().endsWith('.epub')) {
@@ -173,6 +267,9 @@ export default function EpubUploader() {
     setCssPreviewError('');
     setCleanedCssFiles([]);
     setCodeFixes([]);
+    setSectionTypeFixes([]);
+    setLoiFigureFixes([]);
+    setDeletedImagePaths([]);
     setTocFixes([]);
     setTocDraftEdits([]);
     setTocDraftChanged(false);
@@ -194,6 +291,8 @@ export default function EpubUploader() {
       window.history.pushState({ epubChecker: true }, '', '/metadata');
       setAnalysis(finalAnalysis);
       setMetadata({ ...originalAnalysis.metadata });
+      setMetadataDraft({ ...originalAnalysis.metadata });
+      setMetadataLeaveTarget(null);
       setOriginalMetadata({ ...originalAnalysis.metadata });
       setAccessibilityModified(modifiedResult.accessibilityModified);
 
@@ -247,6 +346,9 @@ export default function EpubUploader() {
         removeAccFixRequested,
         titleXhtmlFixRequested,
         languageFixRequested,
+        sectionTypeFixes,
+        loiFigureFixes,
+        deletedImagePaths,
       );
       const modifiedFile = new File([modifiedResult.blob], originalFile.name, {
         type: 'application/epub+zip',
@@ -255,8 +357,10 @@ export default function EpubUploader() {
       const updatedAnalysis = await analyzeEpub(modifiedFile);
 
       setMetadata(updatedMetadata);
+      setMetadataDraft(updatedMetadata);
       setAnalysis(updatedAnalysis);
       setAccessibilityModified(modifiedResult.accessibilityModified);
+      notifySaved();
     } catch (err) {
       console.error('메타데이터 수정 실패:', err);
       setError('메타데이터 수정에 실패했습니다.');
@@ -269,9 +373,31 @@ export default function EpubUploader() {
   async function applyMetadataTextFix(detail: MetadataTextDetail, replacementText: string) {
     if (!originalFile || loading || !replacementText.trim()) return;
     const nextFixes = [
-      ...metadataTextFixes.filter((item) => !(item.file === detail.file && item.targetType === detail.targetType && item.targetIndex === detail.targetIndex)),
+      ...metadataTextFixes.filter((item) => !(item.file === detail.file && item.targetType === detail.targetType && item.targetIndex === detail.targetIndex && item.partIndex === detail.partIndex)),
       { ...detail, replacementText },
     ];
+    await rebuildWithMetadataFixes({ metadataTextFixes: nextFixes });
+  }
+
+  async function applyAllMetadataTextFixes(details: MetadataTextDetail[], replacementText: string) {
+    if (!originalFile || loading || !replacementText.trim() || details.length === 0) return;
+    const nextFixes = [...metadataTextFixes];
+    for (const detail of details) {
+      const key = (item: MetadataTextFix) => item.file === detail.file && item.targetType === detail.targetType && item.targetIndex === detail.targetIndex && item.partIndex === detail.partIndex;
+      const index = nextFixes.findIndex(key);
+      const authorNames = replacementText.split(/[·•ㆍ,，、]/u).map((name) => name.trim()).filter(Boolean);
+      const authorDetails = details.filter((item) => item.targetType === 'author-name');
+      const authorDetailIndex = authorDetails.indexOf(detail);
+      const symbolPrefix = detail.targetType === 'copyright-symbol-text' ? detail.currentText.match(/^(\s*[©Ⓒⓒ]\s*)/u)?.[1] : undefined;
+      const bulkReplacement = detail.targetType === 'copyright-symbol-text'
+        ? `${symbolPrefix ?? ''}${replacementText}`
+        : detail.targetType === 'author-name' && authorNames.length > 1
+          ? authorNames[authorDetailIndex] ?? replacementText
+          : replacementText;
+      const fix = { ...detail, replacementText: bulkReplacement };
+      if (index >= 0) nextFixes[index] = fix;
+      else nextFixes.push(fix);
+    }
     await rebuildWithMetadataFixes({ metadataTextFixes: nextFixes });
   }
 
@@ -294,6 +420,7 @@ export default function EpubUploader() {
       removeAccFixRequested: boolean;
       titleXhtmlFixRequested: boolean;
       languageFixRequested: boolean;
+      sectionTypeFixes: SectionTypeFix[];
     }>,
   ) {
     if (!originalFile || loading) return;
@@ -302,12 +429,14 @@ export default function EpubUploader() {
     const nextRemoveAccFix = updates.removeAccFixRequested ?? removeAccFixRequested;
     const nextTitleFix = updates.titleXhtmlFixRequested ?? titleXhtmlFixRequested;
     const nextLanguageFix = updates.languageFixRequested ?? languageFixRequested;
+    const nextSectionTypeFixes = updates.sectionTypeFixes ?? sectionTypeFixes;
     setLoading(true);
     setError('');
     try {
       const result = await createModifiedEpub(
         originalFile, metadata, cleanedCssFiles, codeFixes, tocFixes,
-        nextTextFixes, nextAccessibilityFix, nextRemoveAccFix, nextTitleFix, nextLanguageFix,
+        nextTextFixes, nextAccessibilityFix, nextRemoveAccFix, nextTitleFix, nextLanguageFix, nextSectionTypeFixes, loiFigureFixes,
+        deletedImagePaths,
       );
       const modifiedFile = new File([result.blob], originalFile.name, { type: 'application/epub+zip' });
       const updatedAnalysis = await analyzeEpub(modifiedFile);
@@ -316,8 +445,10 @@ export default function EpubUploader() {
       setRemoveAccFixRequested(nextRemoveAccFix);
       setTitleXhtmlFixRequested(nextTitleFix);
       setLanguageFixRequested(nextLanguageFix);
+      setSectionTypeFixes(nextSectionTypeFixes);
       setAnalysis(updatedAnalysis);
       setAccessibilityModified(result.accessibilityModified);
+      notifySaved();
     } catch (err) {
       console.error('메타데이터 검사 항목 수정 실패:', err);
       setError('수정 사항을 EPUB에 반영하지 못했습니다.');
@@ -332,11 +463,59 @@ export default function EpubUploader() {
     await rebuildWithMetadataFixes({ languageFixRequested: true });
   }
 
+  async function fixSectionType(file: string, sectionIndex: number, sectionType: 'preface' | 'chapter', newFileName?: string) {
+    if (!originalFile || loading) return;
+    const next = [...sectionTypeFixes.filter((item) => !(item.file === file && item.sectionIndex === sectionIndex)), { file, sectionIndex, sectionType, ...(newFileName ? { newFileName } : {}) }];
+    await rebuildWithMetadataFixes({ sectionTypeFixes: next });
+  }
+
+  async function saveLoiCaption(item: { xhtmlFile: string; id: string; caption: string; file: string }, caption: string): Promise<boolean> {
+    if (!originalFile || loading) return false;
+    const next = mergeLoiFigureFix(loiFigureFixes, { xhtmlFile: item.xhtmlFile, id: item.id, originalCaption: item.caption, imagePath: item.file, caption });
+    return applyLoiFigureUpdates(next);
+  }
+
+  async function replaceLoiImage(item: { xhtmlFile: string; id: string; caption: string; file: string }, imageFile: File): Promise<boolean> {
+    if (!originalFile || loading) return false;
+    const next = mergeLoiFigureFix(loiFigureFixes, { xhtmlFile: item.xhtmlFile, id: item.id, originalCaption: item.caption, imagePath: item.file, imageFile });
+    return applyLoiFigureUpdates(next);
+  }
+
+  async function applyLoiFigureUpdates(nextFixes: LoiFigureFix[]): Promise<boolean> {
+    if (!originalFile || loading) return false;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await createModifiedEpub(originalFile, metadata, cleanedCssFiles, codeFixes, tocFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested, sectionTypeFixes, nextFixes, deletedImagePaths);
+      const modifiedFile = new File([result.blob], originalFile.name, { type: 'application/epub+zip', lastModified: Date.now() });
+      const updated = await analyzeEpub(modifiedFile);
+      setLoiFigureFixes(nextFixes);
+      setAnalysis(updated);
+      setAccessibilityModified(result.accessibilityModified);
+      notifySaved();
+      return true;
+    } catch (err) {
+      console.error('이미지 목차 수정 실패:', err);
+      setError('이미지 목차 수정 사항을 EPUB에 반영하지 못했습니다.');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleSaveTocEdits(edits: { issueId: string; tocText: string; contentText: string }[]): Promise<boolean> {
     if (!originalFile || loading || !analysis) return false;
     const nextFixes = [...tocFixes];
     for (const edit of edits) {
-      const issue = analysis.checks.tocContent.issues.find((item) => item.id === edit.issueId);
+      let issue = analysis.checks.tocContent.issues.find((item) => item.id === edit.issueId);
+      if (!issue && edit.issueId.startsWith('full-')) {
+        const match = edit.issueId.match(/^full-(\d+|x)-(\d+|x)$/);
+        if (match) {
+          const toc = match[1] === 'x' ? null : analysis.checks.tocContent.tocEntries.find((entry) => entry.index === Number(match[1])) ?? null;
+          const content = match[2] === 'x' ? null : analysis.checks.tocContent.contentEntries.find((entry) => entry.index === Number(match[2])) ?? null;
+          if (toc || content) issue = { id: edit.issueId, kind: toc && content ? 'text' : toc ? 'missing-in-content' : 'missing-in-toc', toc, content, canAddToToc: Boolean(content?.targetHref), canAddToContent: Boolean(toc?.href) };
+        }
+      }
       if (!issue) continue;
       if (issue.toc && issue.content) {
         if (edit.tocText !== issue.toc.text) nextFixes.push({ targetSide: 'toc', action: 'update', tocHref: issue.toc.href, tocOriginalText: issue.toc.text, replacementText: edit.tocText });
@@ -352,9 +531,10 @@ export default function EpubUploader() {
     if (nextFixes.length === tocFixes.length) { setTocDraftChanged(false); return true; }
     setLoading(true); setError('');
     try {
-      const result = await createModifiedEpub(originalFile, metadata, cleanedCssFiles, codeFixes, nextFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested);
+      const result = await createModifiedEpub(originalFile, metadata, cleanedCssFiles, codeFixes, nextFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested, sectionTypeFixes, loiFigureFixes, deletedImagePaths);
       const updated = await analyzeEpub(new File([result.blob], originalFile.name, { type: 'application/epub+zip' }));
       setTocFixes(nextFixes); setAnalysis(updated); setAccessibilityModified(result.accessibilityModified); setTocDraftChanged(false);
+      notifySaved();
       return true;
     } catch (err) { console.error(err); setError('목차 수정 사항을 저장하지 못했습니다.'); return false; }
     finally { setLoading(false); }
@@ -390,6 +570,9 @@ export default function EpubUploader() {
         removeAccFixRequested,
         titleXhtmlFixRequested,
         languageFixRequested,
+        sectionTypeFixes,
+        loiFigureFixes,
+        deletedImagePaths,
       );
       const modifiedFile = new File([modifiedResult.blob], originalFile.name, {
         type: 'application/epub+zip',
@@ -400,6 +583,7 @@ export default function EpubUploader() {
       setCodeFixes(nextFixes);
       setAnalysis(updatedAnalysis);
       setAccessibilityModified(modifiedResult.accessibilityModified);
+      notifySaved();
     } catch (err) {
       console.error('코드 수정 실패:', err);
       setError('코드 구조를 수정하지 못했습니다. 해당 XHTML 구조를 확인해 주세요.');
@@ -408,6 +592,23 @@ export default function EpubUploader() {
       setFixingCodeKey(null);
       codeFixLockRef.current = false;
     }
+  }
+
+  async function handleDeleteTocIssue(issue: TocContentIssue): Promise<boolean> {
+    if (!originalFile || loading) return false;
+    const nextFixes = [...tocFixes];
+    if (issue.toc) nextFixes.push({ targetSide: 'toc', action: 'delete', tocHref: issue.toc.href, tocOriginalText: issue.toc.text, replacementText: '' });
+    if (issue.content) nextFixes.push({ targetSide: 'content', action: 'delete', contentOriginalText: issue.content.text, contentClassName: issue.content.className, contentTagName: issue.content.tagName, contentIndex: issue.content.index, replacementText: '' });
+    if (nextFixes.length === tocFixes.length) return false;
+    setLoading(true); setError('');
+    try {
+      const result = await createModifiedEpub(originalFile, metadata, cleanedCssFiles, codeFixes, nextFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested, sectionTypeFixes, loiFigureFixes, deletedImagePaths);
+      const updated = await analyzeEpub(new File([result.blob], originalFile.name, { type: 'application/epub+zip' }));
+      setTocFixes(nextFixes); setAnalysis(updated); setAccessibilityModified(result.accessibilityModified); setTocDraftChanged(false);
+      notifySaved('삭제되었습니다.');
+      return true;
+    } catch (err) { console.error(err); setError('목차 항목을 삭제하지 못했습니다.'); return false; }
+    finally { setLoading(false); }
   }
 
   async function handleFixTocIssue(issue: TocContentIssue, targetSide: 'toc' | 'content') {
@@ -483,6 +684,9 @@ export default function EpubUploader() {
         removeAccFixRequested,
         titleXhtmlFixRequested,
         languageFixRequested,
+        sectionTypeFixes,
+        loiFigureFixes,
+        deletedImagePaths,
       );
       const modifiedFile = new File([modifiedResult.blob], originalFile.name, {
         type: 'application/epub+zip',
@@ -492,6 +696,7 @@ export default function EpubUploader() {
       setTocFixes(nextFixes);
       setAnalysis(updatedAnalysis);
       setAccessibilityModified(modifiedResult.accessibilityModified);
+      notifySaved();
     } catch (err) {
       console.error('TOC/CONTENT 수정 실패:', err);
       setError('선택한 항목을 수정하지 못했습니다. EPUB의 목차 구조와 연결 대상을 확인해 주세요.');
@@ -500,6 +705,13 @@ export default function EpubUploader() {
       setFixingTocId(null);
       tocFixLockRef.current = false;
     }
+  }
+
+  async function deleteImageAsset(path: string): Promise<boolean> {
+    if (loading || deletedImagePaths.includes(path)) return false;
+    setDeletedImagePaths((current) => [...current, path]);
+    notifySaved('삭제되었습니다.');
+    return true;
   }
 
   async function downloadModifiedEpub() {
@@ -520,9 +732,11 @@ export default function EpubUploader() {
         removeAccFixRequested,
         titleXhtmlFixRequested,
         languageFixRequested,
+        sectionTypeFixes,
+        loiFigureFixes,
+        deletedImagePaths,
       );
-      const originalName = originalFile.name.replace(/\.epub$/i, '');
-      const downloadName = `${originalName}(수정).epub`;
+      const downloadName = originalFile.name;
       const url = URL.createObjectURL(modifiedResult.blob);
       const link = document.createElement('a');
 
@@ -531,6 +745,7 @@ export default function EpubUploader() {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      notifySaved('다운로드가 시작되었습니다.');
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
       console.error('EPUB 다운로드 실패:', err);
@@ -546,15 +761,21 @@ export default function EpubUploader() {
     window.history.pushState({ epubChecker: true }, '', '/');
     setAnalysis(null);
     setMetadata({ title: '', creator: '' });
+    setMetadataDraft({ title: '', creator: '' });
+    setMetadataLeaveTarget(null);
     setOriginalMetadata({ title: '', creator: '' });
     setAccessibilityModified(false);
     setCssPreview(null);
     setCssPreviewError('');
     setCleanedCssFiles([]);
     setCodeFixes([]);
+    setSectionTypeFixes([]);
+    setLoiFigureFixes([]);
+    setDeletedImagePaths([]);
     setTocFixes([]);
     setTocDraftEdits([]);
     setTocDraftChanged(false);
+    setTocExcludedTitles(['작가 소개', '판권지', '글의 순서']);
     setMetadataTextFixes([]);
     setAccessibilityFixRequested(false);
     setRemoveAccFixRequested(false);
@@ -614,7 +835,7 @@ export default function EpubUploader() {
               <nav className="workflow-actions" aria-label="주요 작업">
                 <button type="button" onClick={downloadModifiedEpub} disabled={!hasChanges || loading} className="workflow-action">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 16v4h14v-4"/></svg>
-                  <span>다운로드</span>
+                  <span>완료</span>
                 </button>
                 <button type="button" onClick={reset} disabled={loading} className="workflow-action workflow-reset">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.6 6.4"/><path d="M3 4v7h7"/></svg>
@@ -641,11 +862,12 @@ export default function EpubUploader() {
                   key={step.id}
                   type="button"
                   onClick={() => navigateToStep(step.id)}
-                  className={`workflow-step-link ${index === currentStepIndex ? 'is-current' : ''} ${index < currentStepIndex ? 'is-past' : ''}`}
+                  className={`workflow-step-link ${index === currentStepIndex ? 'is-current' : ''} ${index < currentStepIndex ? 'is-past' : ''} ${hasStepError(step.id) ? 'has-error' : ''}`}
                   aria-current={index === currentStepIndex ? 'step' : undefined}
-                  title={step.label}
+                  aria-label={`${step.label}${hasStepError(step.id) ? ', 오류 있음' : ''}`}
+                  title={`${step.label}${hasStepError(step.id) ? ' · 오류 있음' : ''}`}
                 >
-                  <span className="workflow-step-dot">{index < currentStepIndex ? '✓' : index + 1}</span>
+                  <span className="workflow-step-dot">{hasStepError(step.id) ? index + 1 : index < currentStepIndex ? '✓' : index + 1}</span>
                   <span className="workflow-step-name">{step.label}</span>
                 </button>
               ))}
@@ -657,10 +879,30 @@ export default function EpubUploader() {
       {loading && <p className="loading-message">EPUB 파일을 처리하고 있습니다...</p>}
       {error && <p className="error-message">{error}</p>}
 
+      {metadataLeaveTarget && (
+        <div className="confirm-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMetadataLeaveTarget(null); }}>
+          <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="metadata-leave-title" aria-describedby="metadata-leave-description">
+            <div className="confirm-modal-icon" aria-hidden="true">!</div>
+            <h2 id="metadata-leave-title">저장하지 않은 변경사항이 있습니다</h2>
+            <p id="metadata-leave-description">메타데이터 입력 내용을 저장하지 않았습니다. 저장한 뒤 다음 단계로 이동하시겠습니까?</p>
+            <div className="confirm-modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setMetadataLeaveTarget(null)}>계속 수정</button>
+              <button type="button" className="btn-secondary confirm-discard-button" onClick={discardMetadataAndContinue}>저장하지 않고 이동</button>
+              <button type="button" className="btn-primary" onClick={saveMetadataAndContinue} disabled={loading}>저장 후 이동</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {analysis && originalFile && (
         <>
           {currentStep === 'metadata' && (
-            <EpubMetadataSection metadata={metadata} onSave={updateMetadata} />
+            <EpubMetadataSection
+              metadata={metadata}
+              draftMetadata={metadataDraft}
+              onDraftChange={setMetadataDraft}
+              onSave={updateMetadata}
+            />
           )}
 
           {currentStep === 'metadata-check' && (
@@ -674,34 +916,44 @@ export default function EpubUploader() {
               onRemoveAccFix={removeAccFixTags}
               onFixText={applyMetadataTextFix}
               onFixAllTitles={fixAllXhtmlTitles}
+              onFixAllText={applyAllMetadataTextFixes}
             />
           )}
 
           {currentStep === 'structure' && (
-            <EpubStructureCheck checks={analysis.checks} disabled={loading} onFixLanguage={fixLanguage} />
+            <EpubStructureCheck checks={analysis.checks} disabled={loading} onFixLanguage={fixLanguage} onFixSectionType={fixSectionType} />
           )}
 
           {currentStep === 'loi' && (
-            <EpubLoiCheck checks={analysis.checks} />
+            <EpubLoiCheck checks={analysis.checks} disabled={loading} onSaveCaption={saveLoiCaption} onReplaceImage={replaceLoiImage} />
           )}
 
           {currentStep === 'toc' && (
             <EpubTocContentResults
               issues={analysis.checks.tocContent.issues}
+              tocEntries={analysis.checks.tocContent.tocEntries}
+              contentEntries={analysis.checks.tocContent.contentEntries}
               error={analysis.checks.tocContent.error}
               onSave={handleSaveTocEdits}
+              onDelete={handleDeleteTocIssue}
+              excludedTitles={tocExcludedTitles}
+              onSaveExcludedTitles={(titles) => { setTocExcludedTitles(titles); notifySaved(); }}
               onDraftChange={(edits, changed) => { setTocDraftEdits(edits); setTocDraftChanged(changed); }}
               disabled={loading}
             />
           )}
 
           {currentStep === 'code' && (
+            <>
             <EpubCodeResults
               checks={analysis.checks.code}
+              file={originalFile}
               onFixIssue={handleFixCodeIssue}
               fixingKey={fixingCodeKey}
               disabled={loading}
+              imageAssets={<EpubImageAssets file={originalFile} deletedPaths={deletedImagePaths} onDelete={deleteImageAsset} disabled={loading} issues={analysis.checks.code.imageRole.details} />}
             />
+            </>
           )}
 
           {currentStep === 'css' && (
@@ -722,25 +974,15 @@ export default function EpubUploader() {
               <h2>완료</h2>
               <div className="applied-items-section">
                 <button type="button" className="applied-items-toggle" onClick={() => setShowAppliedItems((value) => !value)}>
-                  <span>적용 항목</span><strong>{(hasMetadataChanges ? 1 : 0) + (accessibilityModified || accessibilityFixRequested ? 1 : 0) + (removeAccFixRequested ? 1 : 0) + (titleXhtmlFixRequested ? 1 : 0) + (languageFixRequested ? 1 : 0) + metadataTextFixes.length + cleanedCssFiles.length + codeFixes.length + tocFixes.length}건</strong>
+                  <span>적용 항목</span><strong>{appliedTotal}건</strong>
                   <span>{showAppliedItems ? '접기' : '보기'}</span>
                 </button>
-                {showAppliedItems && <ul className="applied-items-list">{[
-                  ...(hasMetadataChanges ? ['Metadata'] : []),
-                  ...(accessibilityModified || accessibilityFixRequested ? ['접근성 적합성'] : []),
-                  ...(removeAccFixRequested ? ['ACC-fix'] : []),
-                  ...(titleXhtmlFixRequested ? ['title'] : []),
-                  ...(languageFixRequested ? ['언어'] : []),
-                  ...metadataTextFixes.map(() => '제목/작가'),
-                  ...cleanedCssFiles.map(() => 'CSS'),
-                  ...codeFixes.map((item) => ({ dialogue: '대화문', aside: '글상자', image: '이미지', footnote: '각주' }[item.fixType])),
-                  ...tocFixes.map(() => '목차'),
-                ].map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}</ul>}
+                {showAppliedItems && <ul className="applied-items-list">{appliedGroups.map((group) => <li key={group.title}><strong>{group.title} {group.count}건</strong><span>{group.description}</span></li>)}</ul>}
               </div>
               {reportFile ? <EpubFinalReport file={reportFile} /> : <p className="report-loading">최종 EPUB 통계 준비 중...</p>}
               <button type="button" onClick={downloadModifiedEpub} disabled={!hasChanges || loading} className="download-final-button">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 16v4h14v-4"/></svg>
-                수정된 EPUB 다운로드
+                EPUB 다운로드
               </button>
             </section>
           )}
@@ -752,13 +994,14 @@ export default function EpubUploader() {
             </button>
             {currentStep !== 'download' ? (
               <button type="button" onClick={goNext} disabled={loading} className="btn-primary">
-                {currentStep === 'css' ? '다운로드' : '다음'}
+                {currentStep === 'css' ? '완료' : '다음'}
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
               </button>
             ) : null}
           </div>
         </>
       )}
+      {toast && <div className="app-toast" role="status" aria-live="polite">{toast}</div>}
     </main>
   );
 }
@@ -774,6 +1017,9 @@ async function createModifiedEpub(
   removeAccFixRequested = false,
   titleXhtmlFixRequested = false,
   languageFixRequested = false,
+  sectionTypeFixes: SectionTypeFix[] = [],
+  loiFigureFixes: LoiFigureFix[] = [],
+  deletedImagePaths: string[] = [],
 ): Promise<ModifiedEpubResult> {
   const zip = await JSZip.loadAsync(originalFile);
   const containerFile = zip.file(CONTAINER_PATH);
@@ -818,8 +1064,28 @@ async function createModifiedEpub(
   zip.file(opfPath, new XMLSerializer().serializeToString(opfDocument));
 
   if (metadataTextFixes.length > 0) await applyMetadataTextFixes(zip, metadataTextFixes);
+  await normalizeCopyrightSymbols(zip);
   if (titleXhtmlFixRequested) await applyAllXhtmlTitles(zip, metadata.title);
   if (languageFixRequested) await applyKoreanLanguage(zip);
+  if (loiFigureFixes.length > 0) await applyLoiFigureFixes(zip, loiFigureFixes);
+  if (deletedImagePaths.length > 0) {
+    for (const path of deletedImagePaths) zip.remove(path);
+    const manifest = opfDocument.getElementsByTagNameNS(OPF_NS, 'manifest')[0];
+    if (manifest) {
+      const base = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+      const removed = new Set(deletedImagePaths);
+      Array.from(manifest.getElementsByTagNameNS(OPF_NS, 'item')).forEach((item) => {
+        const href = item.getAttribute('href') ?? '';
+        const parts = `${base}${decodeURIComponent(href)}`.split('/');
+        const normalized: string[] = [];
+        for (const part of parts) { if (!part || part === '.') continue; if (part === '..') normalized.pop(); else normalized.push(part); }
+        const resolved = normalized.join('/');
+        if (removed.has(resolved)) item.parentNode?.removeChild(item);
+      });
+      zip.file(opfPath, new XMLSerializer().serializeToString(opfDocument));
+    }
+  }
+  if (sectionTypeFixes.length > 0) await applySectionTypeFixes(zip, sectionTypeFixes);
 
   if (cssFilesToClean.length > 0) {
     await cleanEpubCss(zip, cssFilesToClean);
@@ -839,6 +1105,186 @@ async function createModifiedEpub(
   });
 
   return { blob, accessibilityModified };
+}
+
+function mergeLoiFigureFix(current: LoiFigureFix[], update: LoiFigureFix): LoiFigureFix[] {
+  const index = current.findIndex((item) => item.xhtmlFile === update.xhtmlFile && item.id === update.id && (item.originalCaption ?? '') === (update.originalCaption ?? '') && (item.imagePath ?? '') === (update.imagePath ?? ''));
+  if (index < 0) return [...current, update];
+  return current.map((item, itemIndex) => itemIndex === index ? { ...item, ...update } : item);
+}
+
+async function applyLoiFigureFixes(zip: JSZip, fixes: LoiFigureFix[]) {
+  const parser = new DOMParser();
+  for (const fix of fixes) {
+    const xhtmlEntry = zip.file(fix.xhtmlFile);
+    if (!xhtmlEntry) continue;
+    const source = await xhtmlEntry.async('string');
+    const document = parser.parseFromString(source, 'application/xhtml+xml');
+    if (document.querySelector('parsererror')) continue;
+    const matchingCaptions = Array.from(document.querySelectorAll('figure p.figcap, figure p.figacp')).filter((element) =>
+      element.getAttribute('id') === fix.id && (fix.originalCaption === undefined || (element.textContent ?? '').trim() === fix.originalCaption.trim()),
+    );
+    const captionElement = matchingCaptions.length === 1 ? matchingCaptions[0] : matchingCaptions.find((element) => {
+      const figureImages = Array.from(element.closest('figure')?.querySelectorAll('img[src]') ?? []);
+      return !fix.imagePath || figureImages.some((image) => resolveEpubRelativePath(fix.xhtmlFile, image.getAttribute('src') ?? '') === fix.imagePath);
+    });
+    const figure = captionElement?.closest('figure') ?? null;
+    if (!figure) continue;
+    if (captionElement && fix.caption !== undefined) captionElement.textContent = fix.caption;
+
+    if (fix.imageFile) {
+      const image = figure.querySelector('img[src]');
+      if (image) {
+        const currentSrc = image.getAttribute('src') ?? '';
+        const currentPath = resolveEpubRelativePath(fix.xhtmlFile, currentSrc);
+        const directory = currentPath.includes('/') ? currentPath.slice(0, currentPath.lastIndexOf('/') + 1) : (fix.xhtmlFile.includes('/') ? fix.xhtmlFile.slice(0, fix.xhtmlFile.lastIndexOf('/') + 1) : '');
+        const originalBase = fix.imageFile.name.replace(/[\\/:*?"<>|]/g, '_');
+        const dot = originalBase.lastIndexOf('.');
+        const stem = dot > 0 ? originalBase.slice(0, dot) : originalBase;
+        const extension = dot > 0 ? originalBase.slice(dot) : '';
+        let targetPath = `${directory}${originalBase}`;
+        let suffix = 2;
+        while (zip.file(targetPath) && targetPath !== currentPath) targetPath = `${directory}${stem}-${suffix++}${extension}`;
+        zip.file(targetPath, await fix.imageFile.arrayBuffer());
+        await registerLoiImageInManifest(zip, targetPath);
+        image.setAttribute('src', relativeEpubPath(fix.xhtmlFile, targetPath).split('/').map((part) => encodeURIComponent(part)).join('/'));
+      }
+    }
+    zip.file(fix.xhtmlFile, new XMLSerializer().serializeToString(document));
+
+    if (fix.caption !== undefined) {
+      const loiPath = Object.keys(zip.files).find((path) => !zip.files[path].dir && path.split('/').pop()?.toLowerCase() === 'loi.xhtml');
+      if (loiPath) {
+        const loiEntry = zip.file(loiPath);
+        if (loiEntry) {
+          const loiDocument = parser.parseFromString(await loiEntry.async('string'), 'application/xhtml+xml');
+          const navs = Array.from(loiDocument.querySelectorAll('nav')).filter((nav) => (nav.getAttribute('epub:type') ?? nav.getAttributeNS('http://www.idpf.org/2007/ops', 'type') ?? '').split(/\s+/).includes('loi'));
+          for (const anchor of navs.flatMap((nav) => Array.from(nav.querySelectorAll('a[href]')))) {
+            const href = anchor.getAttribute('href') ?? '';
+            const [pathPart, fragment = ''] = href.split('#', 2);
+            let decodedPath = pathPart;
+            try { decodedPath = decodeURIComponent(pathPart); } catch { /* malformed path: compare as-is */ }
+            const targetFile = pathPart ? resolveEpubRelativePath(loiPath, decodedPath) : loiPath;
+            let decodedFragment = fragment;
+            try { decodedFragment = decodeURIComponent(fragment); } catch { /* malformed fragment: compare as-is */ }
+            if (targetFile === fix.xhtmlFile && decodedFragment === fix.id) anchor.textContent = fix.caption;
+          }
+          zip.file(loiPath, new XMLSerializer().serializeToString(loiDocument));
+        }
+      }
+    }
+  }
+}
+
+async function registerLoiImageInManifest(zip: JSZip, imagePath: string) {
+  const container = zip.file(CONTAINER_PATH);
+  if (!container) throw new Error('container.xml 파일을 찾을 수 없습니다.');
+  const containerDocument = new DOMParser().parseFromString(await container.async('string'), 'application/xml');
+  const rootfile = containerDocument.getElementsByTagNameNS('urn:oasis:names:tc:opendocument:xmlns:container', 'rootfile')[0];
+  const opfPath = rootfile?.getAttribute('full-path');
+  if (!opfPath) throw new Error('OPF 파일 경로를 찾을 수 없습니다.');
+  const opfEntry = zip.file(opfPath);
+  if (!opfEntry) throw new Error('OPF 파일을 찾을 수 없습니다.');
+  const opfDocument = new DOMParser().parseFromString(await opfEntry.async('string'), 'application/xml');
+  const manifest = opfDocument.getElementsByTagNameNS(OPF_NS, 'manifest')[0];
+  if (!manifest) throw new Error('OPF manifest 요소를 찾을 수 없습니다.');
+  const href = relativeEpubPath(opfPath, imagePath).split('/').map((part) => encodeURIComponent(part)).join('/');
+  const existing = Array.from(manifest.getElementsByTagNameNS(OPF_NS, 'item')).some((item) => {
+    const itemHref = item.getAttribute('href') ?? '';
+    let decoded = itemHref;
+    try { decoded = decodeURIComponent(itemHref); } catch { /* compare as-is */ }
+    return resolveEpubRelativePath(opfPath, decoded) === imagePath;
+  });
+  if (existing) return;
+  const extension = imagePath.split('.').pop()?.toLowerCase() ?? '';
+  const mediaType = extension === 'png' ? 'image/png' : extension === 'gif' ? 'image/gif' : extension === 'webp' ? 'image/webp' : extension === 'svg' ? 'image/svg+xml' : extension === 'avif' ? 'image/avif' : extension === 'bmp' ? 'image/bmp' : 'image/jpeg';
+  let index = 1;
+  let id = `loi-replaced-image-${index}`;
+  while (opfDocument.getElementById(id) || opfDocument.querySelector(`[id="${id}"]`)) id = `loi-replaced-image-${++index}`;
+  const item = opfDocument.createElementNS(OPF_NS, 'item');
+  item.setAttribute('id', id);
+  item.setAttribute('href', href);
+  item.setAttribute('media-type', mediaType);
+  manifest.appendChild(item);
+  zip.file(opfPath, new XMLSerializer().serializeToString(opfDocument));
+}
+
+function resolveEpubRelativePath(fromFile: string, href: string): string {
+  const cleanHref = href.split('#')[0].split('?')[0];
+  const base = fromFile.includes('/') ? fromFile.slice(0, fromFile.lastIndexOf('/')) : '';
+  const joined = cleanHref.startsWith('/') ? cleanHref.slice(1) : `${base ? `${base}/` : ''}${cleanHref}`;
+  const parts: string[] = [];
+  for (const part of joined.split('/')) { if (!part || part === '.') continue; if (part === '..') parts.pop(); else parts.push(part); }
+  return parts.join('/');
+}
+
+function relativeEpubPath(fromFile: string, toFile: string): string {
+  const fromParts = fromFile.split('/').slice(0, -1);
+  const toParts = toFile.split('/');
+  while (fromParts.length && toParts.length && fromParts[0] === toParts[0]) { fromParts.shift(); toParts.shift(); }
+  return [...fromParts.map(() => '..'), ...toParts].join('/') || (toFile.split('/').pop() ?? toFile);
+}
+
+async function applySectionTypeFixes(zip: JSZip, fixes: SectionTypeFix[]) {
+  const renamed = new Map<string, string>();
+  for (const fix of fixes) {
+    if (!fix.newFileName) continue;
+    const oldPath = fix.file;
+    const directory = oldPath.includes('/') ? oldPath.slice(0, oldPath.lastIndexOf('/') + 1) : '';
+    const cleanName = fix.newFileName.split('/').pop() || fix.newFileName;
+    if (!/^preface[^/]*\.xhtml$/i.test(cleanName)) continue;
+    const newPath = `${directory}${cleanName}`;
+    if (oldPath !== newPath) renamed.set(oldPath, newPath);
+  }
+  for (const [oldPath, newPath] of renamed) {
+    const entry = zip.file(oldPath);
+    if (!entry || zip.file(newPath)) continue;
+    const data = await entry.async('uint8array');
+    zip.file(newPath, data);
+    zip.remove(oldPath);
+    const oldName = oldPath.split('/').pop() || oldPath;
+    const newName = newPath.split('/').pop() || newPath;
+    const textPaths = Object.keys(zip.files).filter((path) => /\.(xhtml|html|opf|ncx|xml)$/i.test(path) && !zip.files[path].dir);
+    for (const textPath of textPaths) {
+      const textEntry = zip.file(textPath);
+      if (!textEntry) continue;
+      const text = await textEntry.async('string');
+      const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const updated = text.replace(new RegExp(escaped, 'g'), newName);
+      if (updated !== text) zip.file(textPath, updated);
+    }
+  }
+
+  const grouped = new Map<string, SectionTypeFix[]>();
+  for (const fix of fixes) {
+    const path = renamed.get(fix.file) || fix.file;
+    grouped.set(path, [...(grouped.get(path) ?? []), fix]);
+  }
+  for (const [path, fileFixes] of grouped) {
+    const entry = zip.file(path);
+    if (!entry) continue;
+    const source = await entry.async('string');
+    const document = new DOMParser().parseFromString(source, 'application/xhtml+xml');
+    if (document.querySelector('parsererror')) continue;
+    const body = document.body;
+    if (!body) continue;
+    let sections = Array.from(body.children).filter((element) => element.tagName.toLowerCase() === 'section');
+    for (const fix of fileFixes) {
+      if (sections.length === 0 && fix.sectionIndex === 1) {
+        const wrapper = document.createElementNS(XHTML_NS, 'section');
+        while (body.firstChild) wrapper.appendChild(body.firstChild);
+        body.appendChild(wrapper);
+        sections = [wrapper];
+      }
+      const section = sections[fix.sectionIndex - 1];
+      if (!section) continue;
+      const value = fix.sectionType;
+      section.removeAttribute('epub:type');
+      section.setAttributeNS(EPUB_NS, 'epub:type', value);
+      section.setAttribute('role', value === 'preface' ? 'doc-preface' : 'doc-chapter');
+    }
+    zip.file(path, new XMLSerializer().serializeToString(document));
+  }
 }
 
 function findZipFileByBaseName(zip: JSZip, name: string): string | undefined {
@@ -1041,6 +1487,9 @@ async function applyTocContentFixes(zip: JSZip, fixes: TocContentFix[]) {
         const anchor = findTocAnchor(tocNav, fix.tocHref, fix.tocOriginalText);
         if (!anchor) throw new Error(`TOC 항목을 찾을 수 없습니다: ${fix.tocOriginalText ?? ''}`);
         anchor.textContent = fix.replacementText;
+      } else if (fix.action === 'delete') {
+        const anchor = findTocAnchor(tocNav, fix.tocHref, fix.tocOriginalText);
+        anchor?.closest('li')?.remove();
       } else {
         addTocEntry(tocDocument, tocNav, fix);
       }
@@ -1049,6 +1498,8 @@ async function applyTocContentFixes(zip: JSZip, fixes: TocContentFix[]) {
       if (!element)
         throw new Error(`CONTENT 항목을 찾을 수 없습니다: ${fix.contentOriginalText ?? ''}`);
       element.textContent = fix.replacementText;
+    } else if (fix.action === 'delete') {
+      findContentElement(contentDocument, fix)?.remove();
     } else {
       addContentEntry(contentDocument, fix);
     }
@@ -1063,15 +1514,30 @@ const EPUB_NS = 'http://www.idpf.org/2007/ops';
 const XMLNS_NS = 'http://www.w3.org/2000/xmlns/';
 
 function normalizeDialogueQuotes(value: string): string {
-  const normalizePair = (text: string, open: string, close: string) => {
-    let opening = true;
-    return text.replace(new RegExp(`[${open}${close}]`, 'g'), () => {
-      const result = opening ? open : close;
-      opening = !opening;
-      return result;
+  const normalizePair = (text: string, marks: string, open: string, close: string) => {
+    const characters = Array.from(text);
+    const positions = characters
+      .map((character, index) => marks.includes(character) ? index : -1)
+      .filter((index) => index >= 0);
+    if (positions.length === 0) return text;
+
+    positions.forEach((position, index) => {
+      characters[position] = index % 2 === 0 ? open : close;
     });
+    if (positions.length % 2 === 1) {
+      if (positions.length === 1 && positions[0] === characters.length - 1) characters.unshift(open);
+      else characters.push(close);
+    }
+    return characters.join('');
   };
-  return normalizePair(normalizePair(value, '“', '”'), '‘', '’');
+
+  let normalized = normalizePair(value, '\"“”', '“', '”');
+  // 작은따옴표는 영문 어포스트로피와 구분하기 위해 2개 이상일 때만 처리한다.
+  const singleQuoteCount = (normalized.match(/[‘’']/g) ?? []).length;
+  if (singleQuoteCount >= 2) {
+    normalized = normalizePair(normalized, "‘’'", '‘', '’');
+  }
+  return normalized;
 }
 
 async function applyCodeFixes(zip: JSZip, fixes: CodeIssueDetail[]) {
@@ -1095,39 +1561,37 @@ async function applyCodeFixes(zip: JSZip, fixes: CodeIssueDetail[]) {
         const paragraph = document.querySelectorAll('p')[fix.targetIndex];
         if (!paragraph) continue;
         paragraph.classList.add('dialog');
+
+        const existingSpeaker = paragraph.querySelector('.speaker');
         const existingSpeech = paragraph.querySelector('.speech');
-        if (existingSpeech) existingSpeech.textContent = normalizeDialogueQuotes(existingSpeech.textContent ?? '');
-        const rawText = normalizeDialogueQuotes(paragraph.textContent?.trim() ?? '');
-        const match = rawText.match(/^(.+?)\s*:\s*(["'“‘][\s\S]*["'”’])$/);
-        if (match) {
+        const paragraphText = paragraph.textContent?.trim() ?? '';
+        let speakerText = existingSpeaker?.textContent?.trim() ?? '';
+        let speechText = existingSpeech?.textContent?.trim() ?? '';
+
+        // 기존 speaker/speech 구조가 있으면 각각의 실제 텍스트를 사용하고,
+        // 구조가 없다면 첫 번째 콜론을 기준으로 화자와 대사를 분리한다.
+        if (!existingSpeech) {
+          const colonIndex = paragraphText.indexOf(':');
+          if (colonIndex > 0) {
+            speakerText = paragraphText.slice(0, colonIndex).trim();
+            speechText = paragraphText.slice(colonIndex + 1).trim();
+          } else {
+            speechText = paragraphText;
+          }
+        }
+
+        speechText = normalizeDialogueQuotes(speechText);
+        paragraph.replaceChildren();
+        if (speakerText && speechText) {
           const speaker = document.createElementNS(XHTML_NS, 'span');
           speaker.setAttribute('class', 'speaker');
-          speaker.textContent = match[1].trim();
+          speaker.textContent = speakerText;
           const speech = document.createElementNS(XHTML_NS, 'span');
           speech.setAttribute('class', 'speech');
-          speech.textContent = match[2].trim();
-          paragraph.replaceChildren(speaker, document.createTextNode(': '), speech);
+          speech.textContent = speechText;
+          paragraph.append(speaker, document.createTextNode(': '), speech);
         } else {
-          const speaker = paragraph.querySelector('.speaker');
-          const speech = paragraph.querySelector('.speech');
-          if (!speaker && speech) {
-            const before = rawText.slice(0, rawText.indexOf(':')).trim();
-            if (before) {
-              const newSpeaker = document.createElementNS(XHTML_NS, 'span');
-              newSpeaker.setAttribute('class', 'speaker');
-              newSpeaker.textContent = before;
-              paragraph.insertBefore(newSpeaker, speech);
-              paragraph.insertBefore(document.createTextNode(': '), speech);
-            }
-          } else if (!speech && speaker) {
-            const after = rawText.slice(rawText.indexOf(':') + 1).trim();
-            if (after) {
-              const newSpeech = document.createElementNS(XHTML_NS, 'span');
-              newSpeech.setAttribute('class', 'speech');
-              newSpeech.textContent = after;
-              paragraph.appendChild(newSpeech);
-            }
-          }
+          paragraph.textContent = normalizeDialogueQuotes(paragraphText);
         }
       } else if (fix.fixType === 'aside') {
         const aside = document.querySelectorAll('aside')[fix.targetIndex];
@@ -1151,6 +1615,31 @@ async function applyCodeFixes(zip: JSZip, fixes: CodeIssueDetail[]) {
   }
 }
 
+async function normalizeCopyrightSymbols(zip: JSZip) {
+  const paths = Object.keys(zip.files).filter((path) => path.toLowerCase().endsWith('copyright.xhtml'));
+  for (const path of paths) {
+    const entry = zip.file(path);
+    if (!entry) continue;
+    const source = await entry.async('string');
+    const document = new DOMParser().parseFromString(source, 'application/xhtml+xml');
+    if (document.querySelector('parsererror')) continue;
+    let changed = false;
+    for (const paragraph of Array.from(document.querySelectorAll('p'))) {
+      const text = paragraph.textContent ?? '';
+      if (!/글/.test(text) || !/[Ⓒⓒ]/u.test(text)) continue;
+      const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        if (/[Ⓒⓒ]/u.test(node.textContent ?? '')) {
+          node.textContent = (node.textContent ?? '').replace(/[Ⓒⓒ]/gu, '©');
+          changed = true;
+        }
+      }
+    }
+    if (changed) zip.file(path, new XMLSerializer().serializeToString(document));
+  }
+}
+
 async function applyMetadataTextFixes(zip: JSZip, fixes: MetadataTextFix[]) {
   const grouped = new Map<string, MetadataTextFix[]>();
   fixes.forEach((fix) => grouped.set(fix.file, [...(grouped.get(fix.file) ?? []), fix]));
@@ -1162,9 +1651,42 @@ async function applyMetadataTextFixes(zip: JSZip, fixes: MetadataTextFix[]) {
     if (document.querySelector('parsererror')) continue;
     for (const fix of fileFixes) {
       if (fix.targetType === 'alt') {
-        const images = Array.from(document.querySelectorAll('img[alt]'));
+        const images = Array.from(document.querySelectorAll('img'));
         const image = images[fix.targetIndex];
         if (image) image.setAttribute('alt', fix.replacementText);
+      } else if (fix.targetType === 'author-name') {
+        const paragraph = document.querySelectorAll('p.author-name')[fix.targetIndex];
+        if (paragraph) {
+          const firstSpan = Array.from(paragraph.children).find((child) => child.tagName.toLowerCase() === 'span');
+          const textNode = Array.from(paragraph.childNodes).find((child) => child.nodeType === Node.TEXT_NODE && (child.textContent ?? '').trim());
+          if (textNode) {
+            if (typeof fix.partIndex === 'number') {
+              const original = textNode.textContent ?? '';
+              const pieces = original.split(/([·•ㆍ,，、])/u);
+              const authorParts = pieces.filter((piece) => !/^[·•ㆍ,，、]$/u.test(piece) && piece.trim());
+              const targetPart = authorParts[fix.partIndex];
+              if (targetPart !== undefined) {
+                let authorIndex = -1;
+                textNode.textContent = pieces.map((piece) => {
+                  if (/^[·•ㆍ,，、]$/u.test(piece) || !piece.trim()) return piece;
+                  authorIndex += 1;
+                  return authorIndex === fix.partIndex ? fix.replacementText : piece;
+                }).join('');
+              }
+            } else textNode.textContent = fix.replacementText;
+          } else paragraph.insertBefore(document.createTextNode(fix.replacementText), firstSpan ?? null);
+        }
+      } else if (fix.targetType === 'copy-title') {
+        const element = document.querySelectorAll('.copy_title')[fix.targetIndex];
+        if (element) element.textContent = fix.replacementText;
+      } else if (fix.targetType === 'copyright-symbol-paragraph') {
+        const paragraphs = Array.from(document.querySelectorAll('p')).filter((paragraph) => { const text = paragraph.textContent ?? ''; return /글/.test(text) && /동의|저작권/.test(text); });
+        const paragraph = paragraphs[fix.targetIndex];
+        if (paragraph) paragraph.textContent = fix.replacementText;
+      } else if (fix.targetType === 'copy-author') {
+        const values = Array.from(document.querySelectorAll('.copy_b')).filter((label) => (label.textContent ?? '').includes('지은이')).map((label) => label.nextElementSibling).filter((element): element is Element => Boolean(element?.classList.contains('copy_t')));
+        const element = values[fix.targetIndex];
+        if (element) element.textContent = fix.replacementText;
       } else {
         const walker = document.createTreeWalker(document.body ?? document, NodeFilter.SHOW_TEXT);
         let index = 0;

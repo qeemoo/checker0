@@ -463,6 +463,8 @@ export function checkTocContent(files: XhtmlFile[]): TocContentCheckResult {
       matched: 0,
       unmatched: 1,
       issues: [],
+      tocEntries: [],
+      contentEntries: [],
       error: `${!tocFile ? 'toc.xhtml' : 'content.xhtml'} 파일을 찾을 수 없습니다.`,
     };
   }
@@ -480,5 +482,7 @@ export function checkTocContent(files: XhtmlFile[]): TocContentCheckResult {
     matched: Math.max(0, total - issues.length),
     unmatched: issues.length,
     issues,
+    tocEntries,
+    contentEntries,
   };
 }

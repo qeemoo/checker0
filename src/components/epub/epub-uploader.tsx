@@ -81,7 +81,9 @@ function stepFromPath(pathname: string): WorkflowStep {
 }
 
 export default function EpubUploader() {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploadEpub, setUploadEpub] = useState<File | null>(null);
+  const [uploadBodyPdf, setUploadBodyPdf] = useState<File | null>(null);
+  const [uploadCoverPdf, setUploadCoverPdf] = useState<File | null>(null);
   const codeFixLockRef = useRef(false);
   const tocFixLockRef = useRef(false);
 
@@ -326,13 +328,6 @@ export default function EpubUploader() {
     const file = event.target.files?.[0];
     if (file) void handleFile(file);
     event.target.value = '';
-  }
-
-  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragging(false);
-    const file = event.dataTransfer.files?.[0];
-    if (file) void handleFile(file);
   }
 
   async function updateMetadata(updatedMetadata: EpubMetadata) {
@@ -764,6 +759,9 @@ export default function EpubUploader() {
 
   function reset() {
     setOriginalFile(null);
+    setUploadEpub(null);
+    setUploadBodyPdf(null);
+    setUploadCoverPdf(null);
     setCurrentStep('metadata');
     window.history.pushState({ epubChecker: true }, '', '/');
     setAnalysis(null);
@@ -804,28 +802,17 @@ export default function EpubUploader() {
         <>
           <div className="upload-top-space" aria-hidden="true" />
 
-          {/* 첫 파일 투입 화면은 기존 UI와 동작을 그대로 유지합니다. */}
-          <div
-            onDragOver={(event) => {
-              event.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={handleDrop}
-            onClick={() => inputRef.current?.click()}
-            className={`upload-dropzone ${dragging ? 'is-dragging' : ''}`}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".epub"
-              onChange={handleInputChange}
-              className="hidden"
-              style={{ display: 'none' }}
-            />
-            <span className="upload-icon" aria-hidden="true">↑</span>
-            <p className="upload-title">EPUB 파일을 선택하거나 여기에 끌어다 놓으세요.</p>
-          </div>
+          <section className="initial-upload-panel">
+            <h1>파일 등록</h1>
+            <p>EPUB, 본문 PDF, 표지 PDF를 등록한 후 검사를 시작하세요.</p>
+            <div className="initial-upload-fields">
+              <label>EPUB <span>{uploadEpub?.name ?? '파일을 선택하세요'}</span><input type="file" accept=".epub,application/epub+zip" onChange={(event) => setUploadEpub(event.target.files?.[0] ?? null)} /></label>
+              <label>본문 PDF <span>{uploadBodyPdf?.name ?? '파일을 선택하세요'}</span><input type="file" accept=".pdf,application/pdf" onChange={(event) => setUploadBodyPdf(event.target.files?.[0] ?? null)} /></label>
+              <label>표지 PDF <span>{uploadCoverPdf?.name ?? '파일을 선택하세요'}</span><input type="file" accept=".pdf,application/pdf" onChange={(event) => setUploadCoverPdf(event.target.files?.[0] ?? null)} /></label>
+            </div>
+            <button type="button" className="btn-primary initial-upload-submit" disabled={!uploadEpub || !uploadBodyPdf || !uploadCoverPdf || loading} onClick={() => { if (uploadEpub && uploadBodyPdf && uploadCoverPdf) void handleFile(uploadEpub); }}>{loading ? '검사 중...' : '검사하기'}</button>
+            {error && <p className="status-failure" role="alert">{error}</p>}
+          </section>
         </>
       ) : (
         <>
@@ -914,7 +901,7 @@ export default function EpubUploader() {
 
           {/* PDF upload and classification state stays mounted between the three cover steps. */}
           <div style={{ display: currentStep === 'cover' || currentStep === 'introduce' || currentStep === 'backcover' ? 'block' : 'none' }}>
-            <EpubCoverPdfCheck epubFile={originalFile} section={currentStep === 'introduce' ? 'introduce' : currentStep === 'backcover' ? 'backcover' : 'cover'} />
+            <EpubCoverPdfCheck epubFile={originalFile} coverPdf={uploadCoverPdf} section={currentStep === 'introduce' ? 'introduce' : currentStep === 'backcover' ? 'backcover' : 'cover'} />
           </div>
 
           {currentStep === 'metadata-check' && (

@@ -13,6 +13,7 @@ type MatchRow = { text: string; page: number };
 type Target = { file: string; phrases: { text: string; source: '본문' | 'alt' }[] };
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+let pdfJsLoading: Promise<PdfJs> | null = null;
 const COVER_FILES = /(?:^|\/)(?:cover|introduce|backcover|incover|incover2)\.xhtml$/i;
 
 function compact(value: string): string {
@@ -22,28 +23,26 @@ function compact(value: string): string {
 async function loadPdfJs(): Promise<PdfJs> {
   const global = window as Window & { pdfjsLib?: PdfJs };
   if (global.pdfjsLib) return global.pdfjsLib;
-  const existing = document.querySelector<HTMLScriptElement>('script[data-cover-pdfjs]');
-  if (existing) {
-    await new Promise<void>((resolve, reject) => {
-      if (global.pdfjsLib) return resolve();
-      existing.addEventListener('load', () => resolve(), { once: true });
-      existing.addEventListener('error', () => reject(new Error('PDF 분석 라이브러리를 불러오지 못했습니다.')), { once: true });
-    });
-  } else {
-    await new Promise<void>((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = PDFJS_URL;
-      script.async = true;
-      script.dataset.coverPdfjs = 'true';
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error('PDF 분석 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.'));
-      document.head.appendChild(script);
-    });
+  if (!pdfJsLoading) {
+    pdfJsLoading = new Promise<PdfJs>((resolve, reject) => {
+      const script = document.querySelector<HTMLScriptElement>('script[data-cover-pdfjs]') ?? document.createElement('script');
+      const finish = () => {
+        const pdfjs = global.pdfjsLib;
+        if (!pdfjs) { reject(new Error('PDF 분석 라이브러리를 초기화하지 못했습니다.')); return; }
+        pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+        resolve(pdfjs);
+      };
+      script.addEventListener('load', finish, { once: true });
+      script.addEventListener('error', () => reject(new Error('PDF 분석 라이브러리를 불러오지 못했습니다.')), { once: true });
+      if (!script.parentNode) {
+        script.src = PDFJS_URL;
+        script.async = true;
+        script.dataset.coverPdfjs = 'true';
+        document.head.appendChild(script);
+      }
+    }).catch((error) => { pdfJsLoading = null; throw error; });
   }
-  const pdfjs = (window as Window & { pdfjsLib?: PdfJs }).pdfjsLib;
-  if (!pdfjs) throw new Error('PDF 분석 라이브러리를 초기화하지 못했습니다.');
-  pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
-  return pdfjs;
+  return pdfJsLoading;
 }
 
 async function extractCoverPdf(file: File): Promise<{ page: number; text: string }[]> {

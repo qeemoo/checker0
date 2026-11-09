@@ -51,6 +51,9 @@ interface LoiFigureFix {
 
 type WorkflowStep =
   | 'metadata'
+  | 'cover'
+  | 'introduce'
+  | 'backcover'
   | 'metadata-check'
   | 'structure'
   | 'loi'
@@ -60,7 +63,10 @@ type WorkflowStep =
   | 'download';
 
 const WORKFLOW_STEPS: { id: WorkflowStep; label: string; path: string }[] = [
-  { id: 'metadata', label: '메타데이터 입력', path: '/metadata' },
+  { id: 'metadata', label: '메타데이터', path: '/metadata' },
+  { id: 'cover', label: '커버', path: '/cover' },
+  { id: 'introduce', label: '소개', path: '/introduce' },
+  { id: 'backcover', label: '뒤표지', path: '/backcover' },
   { id: 'metadata-check', label: '메타데이터 검사', path: '/metadata-check' },
   { id: 'structure', label: '구조 및 언어', path: '/structure' },
   { id: 'loi', label: '이미지 목차', path: '/loi' },
@@ -906,7 +912,10 @@ export default function EpubUploader() {
             />
           )}
 
-          {currentStep === 'metadata' && <EpubCoverPdfCheck epubFile={originalFile} />}
+          {/* PDF upload and classification state stays mounted between the three cover steps. */}
+          <div style={{ display: currentStep === 'cover' || currentStep === 'introduce' || currentStep === 'backcover' ? 'block' : 'none' }}>
+            <EpubCoverPdfCheck epubFile={originalFile} section={currentStep === 'introduce' ? 'introduce' : currentStep === 'backcover' ? 'backcover' : 'cover'} />
+          </div>
 
           {currentStep === 'metadata-check' && (
             <EpubMetadataCheck

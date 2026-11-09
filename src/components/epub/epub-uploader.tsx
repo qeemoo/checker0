@@ -64,7 +64,7 @@ type WorkflowStep =
 
 const WORKFLOW_STEPS: { id: WorkflowStep; label: string; path: string }[] = [
   { id: 'metadata', label: '메타데이터', path: '/metadata' },
-  { id: 'cover', label: '커버', path: '/cover' },
+  { id: 'cover', label: '표지', path: '/cover' },
   { id: 'introduce', label: '소개', path: '/introduce' },
   { id: 'backcover', label: '뒤표지', path: '/backcover' },
   { id: 'metadata-check', label: '메타데이터 검사', path: '/metadata-check' },

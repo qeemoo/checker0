@@ -2669,3 +2669,6 @@ input[type="text"]:focus,input:not([type]):focus,.metadata-input:focus { border-
 .initial-upload-swap:hover { text-decoration:underline; }
 .initial-upload-simple .initial-upload-submit { width:100%; margin-top:16px; }
 @media(max-width:560px){.initial-multi-dropzone{min-height:245px;padding:30px 14px}.initial-multi-dropzone .upload-title{font-size:16px}}
+
+.initial-upload-spinner { display:inline-block; width:16px; height:16px; margin-right:8px; border:2px solid rgba(255,255,255,.35); border-top-color:#fff; border-radius:50%; animation:initial-upload-spin .7s linear infinite; vertical-align:-3px; }
+@keyframes initial-upload-spin { to { transform:rotate(360deg); } }

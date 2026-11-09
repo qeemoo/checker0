@@ -63,7 +63,7 @@ type WorkflowStep =
   | 'download';
 
 const WORKFLOW_STEPS: { id: WorkflowStep; label: string; path: string }[] = [
-  { id: 'metadata', label: '메타데이터', path: '/metadata' },
+  { id: 'metadata', label: '기본 정보', path: '/metadata' },
   { id: 'cover', label: '표지', path: '/cover' },
   { id: 'introduce', label: '소개', path: '/introduce' },
   { id: 'backcover', label: '뒤표지', path: '/backcover' },
@@ -946,6 +946,7 @@ export default function EpubUploader() {
               disabled={loading}
               metadataTitle={metadata.title}
               metadataCreator={metadata.creator}
+              epubFile={originalFile}
               onFixAccessibility={fixAccessibilityLevel}
               onRemoveAccFix={removeAccFixTags}
               onFixText={applyMetadataTextFix}

@@ -18,6 +18,7 @@ interface Props {
   metadataCreator: string;
   epubFile: File;
   bodyPdf?: File | null;
+  onApplyEpub: (file: File) => void;
   disabled: boolean;
   onFixAccessibility: () => Promise<void>;
   onRemoveAccFix: () => Promise<void>;
@@ -174,6 +175,7 @@ export default function EpubMetadataCheck({
   metadataCreator,
   epubFile,
   bodyPdf,
+  onApplyEpub,
   disabled,
   onFixAccessibility,
   onRemoveAccFix,
@@ -186,6 +188,8 @@ export default function EpubMetadataCheck({
   const [busy, setBusy] = useState(false);
   const [rightsChecks, setRightsChecks] = useState<{ label: string; expected: string; actual: string; ok: boolean; pdf?: string; pdfPage?: number; note?: string }[] | null>(null);
   const [rightsError, setRightsError] = useState('');
+  const [rightsDrafts, setRightsDrafts] = useState<Record<string, string>>({});
+  const [rightsSaving, setRightsSaving] = useState(false);
   const norm = (value: string) => value.normalize('NFKC').replace(/\s+/g, '').replace(/[ⓒⒸ©]/g, '©').trim();
   const splitNames = (value: string) => value.split(/[·ㆍ•,，、;；/]+/).map((name) => norm(name)).filter(Boolean);
   const containsName = (actual: string, expected: string) => Boolean(expected && splitNames(expected).every((name) => norm(actual).includes(name)));
@@ -281,6 +285,56 @@ export default function EpubMetadataCheck({
   }, [epubFile, bodyPdf, metadataTitle, metadataCreator]);
 
 
+  async function saveRightsText(label: string, actual: string, draft: string) {
+    if (!draft.trim() || draft === actual) return;
+    setRightsSaving(true);
+    try {
+      const zip = await JSZip.loadAsync(epubFile);
+      const filename = label.startsWith('소개 ·') ? 'introduce.xhtml' : 'copyright.xhtml';
+      const path = Object.keys(zip.files).find((name) => name.toLowerCase().endsWith('/' + filename) || name.toLowerCase() === filename);
+      if (!path) throw new Error(filename + ' 파일이 없습니다.');
+      const xml = await zip.file(path)!.async('string');
+      const doc = new DOMParser().parseFromString(xml, 'application/xhtml+xml');
+      const paragraphs = Array.from(doc.querySelectorAll('p'));
+      const target = label.startsWith('소개 ·') ? doc.querySelector('p.author-name')
+        : label.endsWith('분야') ? paragraphs.find((p) => /읽기\s*쉬운\s*책/.test(p.textContent ?? ''))
+        : label.endsWith('작가명') ? paragraphs.find((p) => /^(지은이|옮긴이|글|글쓴이|번역)$/.test((p.querySelector('span.copy_b')?.textContent ?? '').replace(/\s/g, '')))
+        : paragraphs.find((p) => /동의를 받아 만들었습니다/.test(p.textContent ?? ''));
+      if (!target) throw new Error('수정할 EPUB 문구를 찾지 못했습니다.');
+      if (label === '저작권 · 작가명') {
+        const name = target.querySelector('span.copy_t');
+        if (!name) throw new Error('copy_t 항목이 없습니다.');
+        name.textContent = draft;
+      } else target.textContent = draft;
+      zip.file(path, new XMLSerializer().serializeToString(doc));
+      const blob = await zip.generateAsync({ type: 'blob' });
+      onApplyEpub(new File([blob], epubFile.name, { type: 'application/epub+zip', lastModified: Date.now() }));
+      setRightsDrafts((old) => { const next = { ...old }; delete next[label]; return next; });
+      setToast({ ok: true, message: 'EPUB에 저장했습니다.' });
+    } catch (error) {
+      setToast({ ok: false, message: error instanceof Error ? error.message : '저장 실패' });
+    } finally { setRightsSaving(false); }
+  }
+
+  function rightsCard(item: {label: string;expected: string;actual: string;ok: boolean;pdf?: string;pdfPage?: number;note?: string}) {
+    const file = item.label.startsWith('소개 ·') ? 'introduce.xhtml' : 'copyright.xhtml';
+    const editText = item.label === '저작권 · 작가명' ? item.actual.replace(/^(지은이|옮긴이|글|글쓴이|번역)\s*/, '') : item.actual;
+    const draft = rightsDrafts[item.label] ?? editText;
+    return <article className="metadata-check-detail" key={item.label}>
+      <div className="metadata-detail-heading"><strong className="metadata-check-file">{file}</strong>
+        <div className="metadata-detail-statuses"><DetailStatusPill status={{label: item.label.replace(/^(소개|저작권) · /, ''), matched: item.ok}} /></div>
+      </div>
+      <pre className="metadata-check-code"><code><HighlightedCode preview={item.actual || '(문구 없음)'} terms={[...splitNames(metadataCreator), reference?.publisher ?? '', '읽기쉬운책'].filter(Boolean)} /></code></pre>
+      <p className="metadata-check-help">기준: {item.expected}</p>
+      {item.note && <p className="metadata-check-help">{item.note}</p>}
+      {item.pdf && <details className="rights-pdf-evidence"><summary>PDF {item.pdfPage}페이지 근거 보기</summary><p>{item.pdf.slice(0,1300)}</p></details>}
+      <label className="metadata-check-edit-label">수정할 내용
+        <textarea rows={2} value={draft} onChange={(event) => setRightsDrafts((old) => ({...old,[item.label]:event.target.value}))} disabled={disabled || rightsSaving} spellCheck={false} />
+      </label>
+      <div className="metadata-check-detail-actions"><button type="button" className="metadata-check-fix-button" disabled={disabled || rightsSaving || !draft.trim() || draft === editText} onClick={() => void saveRightsText(item.label, editText, draft)}>저장</button></div>
+    </article>;
+  }
+
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 2300);
@@ -367,9 +421,7 @@ export default function EpubMetadataCheck({
             <span className="metadata-check-bullet" /><span className="metadata-check-label">소개</span><CheckStatus ok={introduceOk} />
           </button>
           {expanded === 'introduce' && <div className="metadata-check-detail-list">
-            {rightsChecks?.filter((item) => item.label.startsWith('소개 ·')).map((item) => (
-              <div className="metadata-check-item" key={item.label}><div className="rights-check-row"><div><strong>{item.label}</strong><p>기준: {item.expected}</p><p>EPUB: {item.actual || '(없음)'}</p>{item.note && <p>{item.note}</p>}{item.pdf && <details className="rights-pdf-evidence"><summary>PDF {item.pdfPage}페이지 근거</summary><p>{item.pdf.slice(0,1300)}</p></details>}</div><CheckStatus ok={item.ok}/></div></div>
-            ))}
+            {rightsChecks?.filter((item) => item.label.startsWith('소개 ·')).map((item) => rightsCard(item))}
           </div>}
         </div>
         <div className="metadata-check-item">
@@ -377,9 +429,7 @@ export default function EpubMetadataCheck({
             <span className="metadata-check-bullet" /><span className="metadata-check-label">저작권</span><CheckStatus ok={copyrightOk} />
           </button>
           {expanded === 'copyright' && <div className="metadata-check-detail-list">
-            {rightsChecks?.filter((item) => item.label.startsWith('저작권 ·')).map((item) => (
-              <div className="metadata-check-item" key={item.label}><div className="rights-check-row"><div><strong>{item.label}</strong><p>기준: {item.expected}</p><p>EPUB: {item.actual || '(없음)'}</p>{item.note && <p>{item.note}</p>}{item.pdf && <details className="rights-pdf-evidence"><summary>PDF {item.pdfPage}페이지 근거</summary><p>{item.pdf.slice(0,1300)}</p></details>}</div><CheckStatus ok={item.ok}/></div></div>
-            ))}
+            {rightsChecks?.filter((item) => item.label.startsWith('저작권 ·')).map((item) => rightsCard(item))}
             <MetadataSubsection label="제목 · copy_title" items={resultDetails('제목', checks.copyrightTitle, metadataTitle)} emptyText="copy_title 클래스를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} onApplyAll={() => runAction(() => onFixAllText((checks.copyrightTitle.details ?? []), metadataTitle), '메타데이터 제목을 적용했습니다.')} />
 
           </div>}
@@ -400,12 +450,12 @@ export default function EpubMetadataCheck({
               </button>
             </div>
             {titleOk ? (
-              <p className="metadata-check-empty metadata-title-passed">모든 XHTML title이 메타데이터 제목과 일치합니다.</p>
+              <article className="metadata-check-detail"><div className="metadata-detail-heading"><strong className="metadata-check-file">{metadataTitle}</strong><DetailStatusPill status={{ label: "XHTML title", matched: true }} /></div><p className="metadata-check-empty metadata-title-passed">모든 XHTML title이 메타데이터 제목과 일치합니다.</p></article>
             ) : checks.titleXhtml.details.filter((detail) => !detail.matched).map((detail) => (
-              <div className="metadata-title-detail" key={detail.file}>
-                <strong className="metadata-title-file">{displayEpubPath(detail.file)}</strong>
-                <span className="metadata-title-current">{detail.title || '(title 없음)'}</span>
-              </div>
+              <article className="metadata-check-detail" key={detail.file}>
+                <div className="metadata-detail-heading"><strong className="metadata-check-file">{displayEpubPath(detail.file)}</strong><DetailStatusPill status={{label:"title",matched:false}} /></div>
+                <pre className="metadata-check-code"><code>{detail.title || '(title 없음)'}</code></pre>
+              </article>
             ))}
           </div>}
         </div>

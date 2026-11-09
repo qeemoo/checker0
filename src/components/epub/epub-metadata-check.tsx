@@ -251,10 +251,10 @@ export default function EpubMetadataCheck({
           });
         };
         record('소개 · 작가명', expectedAuthor, authorName, containsName(authorName, expectedAuthor), authorName);
-        const fieldValue = fieldPrefix.replace(/^\s*[|｜]\s*/, '').trim();
-        const fieldNeedle = '읽기쉬운책' + fieldValue;
+        const fieldValue = fieldPrefix.replace(/^\s*[|｜]\s*/, '').trim().split(/\s+/)[0] ?? '';
+        const fieldNeedle = fieldValue;
         checks.push({
-          label: '저작권 · 분야', expected: 'PDF의 읽기쉬운책 분야', actual: fieldValue ? '읽기쉬운책 ' + fieldValue : '',
+          label: '저작권 · 분야', expected: 'PDF 판권지의 분야명', actual: fieldValue || '',
           ok: Boolean(fieldValue && matchesPdf(fieldNeedle)),
           pdf: bodyPdf ? rightsPage?.text : undefined, pdfPage: rightsPage?.page,
           note: !fieldValue ? '분야 없음' : !bodyPdf ? '본문 PDF가 없어 검증 불가' :

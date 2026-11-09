@@ -277,6 +277,9 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf, onApply
 
   return (
     <section className="epub-cover-pdf-check">
+      <div className="cover-section-tabs" role="group" aria-label="표지 검사 영역">
+        {sections.map((item) => <button key={item.id} type="button" className={selectedSection === item.id ? 'is-active' : ''} aria-pressed={selectedSection === item.id} onClick={() => { setSelectedSection(item.id); setEditing(null); }}>{item.label}</button>)}
+      </div>
       <h3>{selectedSection === 'introduce' ? '소개' : selectedSection === 'backcover' ? '뒤표지' : '커버'} PDF 대조</h3>
       <div className="cover-pdf-actions">
         {!coverPdf && <label className="cover-pdf-file-label">PDF 선택

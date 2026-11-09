@@ -583,6 +583,35 @@ export default function EpubUploader() {
     setCleanedCssFiles((current) => [...new Set([...current, ...files])]);
   }
 
+  async function handleFixDialogueQuotes() {
+    if (!originalFile || !analysis || loading || codeFixLockRef.current) return;
+    const candidates = analysis.checks.code.dialogue.details.filter((detail) =>
+      detail.reasons.some((reason) => reason.includes('따옴표')) &&
+      !codeFixes.some((fixed) => fixed.file === detail.file && fixed.fixType === detail.fixType && fixed.targetIndex === detail.targetIndex)
+    );
+    if (!candidates.length) return;
+    codeFixLockRef.current = true;
+    setLoading(true);
+    setFixingCodeKey('dialogue-batch');
+    setError('');
+    try {
+      const nextFixes = [...codeFixes, ...candidates];
+      const result = await createModifiedEpub(originalFile, metadata, cleanedCssFiles, nextFixes, tocFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested, sectionTypeFixes, loiFigureFixes, deletedImagePaths);
+      const updated = await analyzeEpub(new File([result.blob], originalFile.name, { type: 'application/epub+zip' }));
+      setCodeFixes(nextFixes);
+      setAnalysis(updated);
+      setAccessibilityModified(result.accessibilityModified);
+      notifySaved(`${candidates.length}개 대화문의 따옴표를 수정했습니다.`);
+    } catch (err) {
+      console.error('대화문 일괄 수정 실패:', err);
+      setError('대화문 따옴표를 일괄 수정하지 못했습니다.');
+    } finally {
+      setLoading(false);
+      setFixingCodeKey(null);
+      codeFixLockRef.current = false;
+    }
+  }
+
   async function handleFixCodeIssue(detail: CodeIssueDetail) {
     if (!originalFile || loading || codeFixLockRef.current) return;
 
@@ -995,6 +1024,7 @@ export default function EpubUploader() {
               checks={analysis.checks.code}
               file={originalFile}
               onFixIssue={handleFixCodeIssue}
+              onFixDialogueQuotes={handleFixDialogueQuotes}
               fixingKey={fixingCodeKey}
               disabled={loading}
               imageAssets={<EpubImageAssets file={originalFile} deletedPaths={deletedImagePaths} onDelete={deleteImageAsset} disabled={loading} issues={analysis.checks.code.imageRole.details} />}

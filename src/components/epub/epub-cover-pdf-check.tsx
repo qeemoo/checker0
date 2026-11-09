@@ -10,7 +10,7 @@ type PdfJs = { GlobalWorkerOptions: { workerSrc: string }; getDocument: (input: 
 
 type CoverSection = 'cover' | 'introduce' | 'backcover';
 type MatchRow = { text: string; page: number };
-type Target = { file: string; text: string; alt: string };
+type Target = { file: string; phrases: { text: string; source: '본문' | 'alt' }[] };
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const COVER_FILES = /(?:^|\/)(?:cover|introduce|backcover|incover|incover2)\.xhtml$/i;
@@ -89,19 +89,32 @@ async function extractEpubCover(file: File): Promise<Target[]> {
     const doc = new DOMParser().parseFromString(xml, 'application/xhtml+xml');
     if (doc.querySelector('parsererror')) throw new Error(path + ' 파일의 XHTML을 읽을 수 없습니다.');
     const body = doc.querySelector('body');
-    const alt = Array.from(body?.querySelectorAll('img[alt]') ?? []).map((img) => img.getAttribute('alt') ?? '').join(' ');
-    targets.push({ file: path.split('/').pop() ?? path, text: compact(body?.textContent ?? ''), alt: compact(alt) });
+    const phrases: Target['phrases'] = [];
+    if (body) {
+      const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const parent = node.parentElement;
+        if (!parent || parent.closest('script,style,svg')) continue;
+        const text = node.textContent?.replace(/\\s+/g, ' ').trim() ?? '';
+        if (compact(text)) phrases.push({ text, source: '본문' });
+      }
+      for (const img of Array.from(body.querySelectorAll('img[alt]'))) {
+        const text = img.getAttribute('alt')?.trim() ?? '';
+        if (compact(text)) phrases.push({ text, source: 'alt' });
+      }
+    }
+    targets.push({ file: path.split('/').pop() ?? path, phrases });
   }
   return targets;
 }
 
-function evaluate(lines: { page: number; text: string }[], target?: Target) {
-  return lines.map((line) => {
-    const value = compact(line.text);
-    const inText = Boolean(target && target.text.includes(value));
-    const inAlt = Boolean(target && target.alt.includes(value));
-    return { ...line, matched: inText, inAlt };
-  });
+function evaluate(lines: MatchRow[], target?: Target) {
+  const pdfText = lines.map((line) => compact(line.text)).join('');
+  return (target?.phrases ?? []).map((phrase) => ({
+    ...phrase,
+    matched: pdfText.includes(compact(phrase.text)),
+  }));
 }
 
 export default function EpubCoverPdfCheck({ epubFile, section, coverPdf }: { epubFile: File; section?: CoverSection; coverPdf?: File | null }) {
@@ -155,7 +168,7 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf }: { epu
   const currentFile = sections.find((item) => item.id === selectedSection)?.file;
   const target = targets.find((item) => item.file.toLowerCase() === currentFile);
   const results = evaluate(rows ?? [], target);
-  const allMatched = Boolean(rows?.length && target && results.every((row) => row.matched));
+  const allMatched = Boolean(rows && target && results.every((row) => row.matched));
   const failures = results.filter((row) => !row.matched);
 
   return (
@@ -173,13 +186,13 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf }: { epu
           <div className="cover-pdf-summary">
             <strong className={allMatched ? 'status-success' : 'status-failure'}>{allMatched ? 'O' : 'X'}</strong>
             <span>{currentFile}</span>
-            <span>{allMatched ? '모든 문구 일치' : target ? `누락 문구 ${failures.length}건` : 'XHTML 파일 없음'}</span>
+            <span>{allMatched ? 'EPUB 문구 모두 확인' : target ? `누락 문구 ${failures.length}건` : 'XHTML 파일 없음'}</span>
           </div>
           {!allMatched && failures.map((row, index) => (
             <div className="cover-pdf-issue" key={index}>
               <strong className="status-failure">X</strong>
               <span>{row.text}</span>
-              <small>{row.inAlt ? 'alt에만 있음' : 'XHTML 본문 및 alt에서 찾지 못함'} · PDF {row.page}p</small>
+              <small>EPUB {row.source} · PDF에서 찾지 못함</small>
             </div>
           ))}
         </div>

@@ -2718,3 +2718,9 @@ input[type="text"]:focus,input:not([type]):focus,.metadata-input:focus { border-
 .cover-section-tabs button{flex:1;min-width:0;padding:10px 8px;border:0;border-radius:8px;background:transparent;color:#667085;font-size:13px;font-weight:600;cursor:pointer}
 .cover-section-tabs button.is-active{background:#fff;color:#175cd3;box-shadow:0 1px 4px #1018281c}
 .cover-section-tabs button:focus-visible{outline:2px solid #175cd3;outline-offset:2px}
+
+/* 본문 PDF '글의 순서'와 CONTENT 목차의 오탈자 검토 */
+.toc-full-cell .toc-pdf-mismatch{display:inline-flex;align-items:center;justify-content:center;flex:none;margin-left:8px;width:19px;height:19px;border-radius:50%;background:#fee4e2;color:#b42318;font-size:11px;font-weight:800;vertical-align:middle}
+.toc-pdf-difference{margin:12px 0;padding:13px 15px;border:1px solid #fecdca;border-radius:9px;background:#fffafa;overflow-wrap:anywhere}
+.toc-pdf-difference>strong{display:block;color:#b42318;font-size:13px;margin-bottom:8px}
+.toc-pdf-difference p{font-size:12px;color:#475467;line-height:1.7;margin:4px 0}

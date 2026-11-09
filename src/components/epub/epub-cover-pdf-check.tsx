@@ -68,7 +68,9 @@ async function extractCoverPdf(file: File): Promise<{ page: number; text: string
         }
         group.items.push({ x, text: value });
       }
-      for (const group of groups) {
+      // PDF.js 텍스트 항목의 반환 순서는 화면의 읽기 순서와 다를 수 있습니다.
+      // 위에서 아래로 정렬해야 '순' + 줄바꿈 + '간'을 '순간'으로 복원할 수 있습니다.
+      for (const group of groups.sort((a, b) => b.y - a.y)) {
         const line = group.items.sort((a, b) => a.x - b.x).map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim();
         if (compact(line).length >= 1) lines.push({ page: pageNumber, text: line });
       }
@@ -101,7 +103,7 @@ async function extractEpubCover(file: File): Promise<Target[]> {
       }
       for (const img of Array.from(body.querySelectorAll('img[alt]'))) {
         const text = img.getAttribute('alt')?.trim() ?? '';
-        if (compact(text)) phrases.push({ text, source: 'alt' });
+        if (compact(text) && !/^(앞표지|뒤표지|표지|커버)$/u.test(compact(text))) phrases.push({ text, source: 'alt' });
       }
     }
     targets.push({ file: path.split('/').pop() ?? path, phrases });
@@ -127,14 +129,14 @@ function editDistance(a: string, b: string): number {
 }
 
 function evaluate(lines: MatchRow[], target?: Target) {
-  const pdfLines = lines.map((line) => compact(line.text));
-  const pdfText = pdfLines.join('');
+  // 줄 끝에서 강제로 잘린 단어는 PDF의 다음 줄과 이어서 검사합니다.
+  const pageTexts = [...new Set(lines.map((line) => line.page))].map((page) => lines.filter((line) => line.page === page).map((line) => compact(line.text)).join(''));
   const pdfWords = lines.flatMap((line) => words(line.text));
   return (target?.phrases ?? []).flatMap((phrase) => {
     const tokens = words(phrase.text);
     if (!tokens.length) return [];
     // PDF 문구는 페이지에서 떨어져 있어도 단어별로 대조한다.
-    const missing = tokens.filter((token) => !pdfText.includes(token) && !pdfWords.some((word) => word.includes(token)));
+    const missing = tokens.filter((token) => !pageTexts.some((text) => text.includes(token)) && !pdfWords.some((word) => word.includes(token)));
     const suggestions = missing.map((token) => {
       const near = pdfWords.find((word) => word.length >= 2 && editDistance(token, word) <= (token.length >= 5 ? 2 : 1));
       return { token, near };

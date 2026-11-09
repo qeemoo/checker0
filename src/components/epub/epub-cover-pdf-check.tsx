@@ -10,7 +10,7 @@ type PdfJs = { GlobalWorkerOptions: { workerSrc: string }; getDocument: (input: 
 
 type CoverSection = 'cover' | 'introduce' | 'backcover';
 type MatchRow = { text: string; page: number };
-type Target = { file: string; phrases: { text: string; source: '본문' | 'alt' }[] };
+type Target = { file: string; path: string; phrases: { text: string; source: '본문' | 'alt'; altIndex?: number }[] };
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 let pdfJsLoading: Promise<PdfJs> | null = null;
@@ -100,12 +100,12 @@ async function extractEpubCover(file: File): Promise<Target[]> {
         const text = node.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         if (compact(text)) phrases.push({ text, source: '본문' });
       }
-      for (const img of Array.from(body.querySelectorAll('img[alt]'))) {
+      for (const [altIndex, img] of Array.from(body.querySelectorAll('img[alt]')).entries()) {
         const text = img.getAttribute('alt')?.trim() ?? '';
-        if (compact(text) && !/^(앞표지|뒤표지|표지|커버)$/u.test(compact(text))) phrases.push({ text, source: 'alt' });
+        if (compact(text) && !/^(앞표지|뒤표지|표지|커버)$/u.test(compact(text))) phrases.push({ text, source: 'alt', altIndex });
       }
     }
-    targets.push({ file: path.split('/').pop() ?? path, phrases });
+    targets.push({ file: path.split('/').pop() ?? path, path, phrases });
   }
   return targets;
 }
@@ -128,28 +128,52 @@ function editDistance(a: string, b: string): number {
 }
 
 function evaluate(lines: MatchRow[], target?: Target) {
-  // 줄 끝에서 강제로 잘린 단어는 PDF의 다음 줄과 이어서 검사합니다.
-  const pageTexts = [...new Set(lines.map((line) => line.page))].map((page) => lines.filter((line) => line.page === page).map((line) => compact(line.text)).join(''));
-  const pdfWords = lines.flatMap((line) => words(line.text));
-  return (target?.phrases ?? []).flatMap((phrase) => {
+  const pages = [...new Set(lines.map((line) => line.page))].map((page) => ({
+    page,
+    lines: lines.filter((line) => line.page === page),
+  }));
+  return (target?.phrases ?? []).map((phrase, phraseIndex) => {
     const tokens = words(phrase.text);
-    if (!tokens.length) return [];
-    // PDF 문구는 페이지에서 떨어져 있어도 단어별로 대조한다.
-    const missing = tokens.filter((token) => !pageTexts.some((text) => text.includes(token)) && !pdfWords.some((word) => word.includes(token)));
-    const suggestions = missing.map((token) => {
-      const near = pdfWords.find((word) => word.length >= 2 && editDistance(token, word) <= (token.length >= 5 ? 2 : 1));
-      return { token, near };
-    });
-    return [{ ...phrase, matched: missing.length === 0, missing: suggestions }];
+    const missing = tokens.filter((token) => !pages.some(({ lines: pageLines }) => {
+      // 행 사이에서 분리된 단어는 이웃 행을 결합해 복원한다.
+      return pageLines.some((line, index) => {
+        const joined = compact(line.text + (pageLines[index + 1]?.text ?? ''));
+        return joined.includes(token) || compact(line.text).includes(token);
+      });
+    }));
+    const pdfCandidates = pages.flatMap(({ page, lines: pageLines }) => pageLines.map((line, index) => ({
+      page, text: line.text, score: tokens.filter((token) => compact(line.text + (pageLines[index + 1]?.text ?? '')).includes(token)).length,
+    }))).sort((a, b) => b.score - a.score);
+    const candidate = pdfCandidates[0];
+    return { ...phrase, phraseIndex, matched: missing.length === 0, missing, candidate: candidate?.score ? candidate : null };
   });
 }
 
-export default function EpubCoverPdfCheck({ epubFile, section, coverPdf }: { epubFile: File; section?: CoverSection; coverPdf?: File | null }) {
+function highlight(text: string, tokens: string[]) {
+  if (!tokens.length) return text;
+  const parts: React.ReactNode[] = [];
+  let rest = text;
+  let key = 0;
+  while (rest.length) {
+    const positions = tokens.map((token) => ({ token, index: rest.indexOf(token) })).filter((part) => part.index >= 0).sort((a, b) => a.index - b.index);
+    if (!positions.length) { parts.push(rest); break; }
+    const first = positions[0];
+    if (first.index) parts.push(rest.slice(0, first.index));
+    parts.push(<mark key={key++}>{first.token}</mark>);
+    rest = rest.slice(first.index + first.token.length);
+  }
+  return parts;
+}
+
+export default function EpubCoverPdfCheck({ epubFile, section, coverPdf, onApplyEpub }: { epubFile: File; section?: CoverSection; coverPdf?: File | null; onApplyEpub?: (file: File) => void }) {
   const [pdfFile, setPdfFile] = useState<File | null>(coverPdf ?? null);
   const [rows, setRows] = useState<MatchRow[] | null>(null);
   const [targets, setTargets] = useState<Target[]>([]);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
   const [selectedSection, setSelectedSection] = useState<CoverSection>('cover');
   useEffect(() => { if (section) setSelectedSection(section); }, [section]);
   const sections: { id: CoverSection; label: string; file: string }[] = [
@@ -192,6 +216,46 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf }: { epu
     return () => { active = false; };
   }, [coverPdf, epubFile]);
 
+  async function saveCorrection(phraseIndex: number) {
+    if (!target || !onApplyEpub) return;
+    setSaving(true);
+    try {
+      const zip = await JSZip.loadAsync(epubFile);
+      const entry = zip.file(target.path);
+      if (!entry) throw new Error('수정할 XHTML 파일이 없습니다.');
+      const xml = await entry.async('string');
+      const doc = new DOMParser().parseFromString(xml, 'application/xhtml+xml');
+      const phrase = target.phrases[phraseIndex];
+      const body = doc.querySelector('body');
+      if (!body || !phrase) throw new Error('수정할 EPUB 문구가 없습니다.');
+      if (phrase.source === 'alt') {
+        const img = Array.from(body.querySelectorAll('img[alt]'))[phrase.altIndex ?? -1];
+        if (!img) throw new Error('수정할 alt 항목이 없습니다.');
+        img.setAttribute('alt', draft);
+      } else {
+        const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+        let node: Node | null;
+        let found = false;
+        while ((node = walker.nextNode())) {
+          if (node.parentElement?.closest('script,style,svg')) continue;
+          if (node.textContent?.replace(/\s+/g, ' ').trim() === phrase.text) {
+            node.textContent = draft;
+            found = true;
+            break;
+          }
+        }
+        if (!found) throw new Error('원문 위치를 찾지 못했습니다.');
+      }
+      zip.file(target.path, new XMLSerializer().serializeToString(doc));
+      const blob = await zip.generateAsync({ type: 'blob' });
+      onApplyEpub(new File([blob], epubFile.name, { type: 'application/epub+zip', lastModified: Date.now() }));
+      setEditing(null);
+      setError('');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'EPUB 수정에 실패했습니다.');
+    } finally { setSaving(false); }
+  }
+
   const currentFile = sections.find((item) => item.id === selectedSection)?.file;
   const target = targets.find((item) => item.file.toLowerCase() === currentFile);
   const results = evaluate(rows ?? [], target);
@@ -215,11 +279,33 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf }: { epu
             <span>{currentFile}</span>
             <span>{allMatched ? 'EPUB 문구 모두 확인' : target ? `누락 문구 ${failures.length}건` : 'XHTML 파일 없음'}</span>
           </div>
-          {!allMatched && failures.map((row, index) => (
-            <div className="cover-pdf-issue" key={index}>
-              <strong className="status-failure">X</strong>
-              <span>{row.missing.map((item) => item.near ? `${item.token} (PDF 유사 문구: ${item.near})` : item.token).join(' · ')}</span>
-              <small>EPUB {row.source} 원문: {row.text}</small>
+          {!allMatched && failures.map((row) => (
+            <div className="cover-compare-issue" key={row.phraseIndex}>
+              <div className="cover-compare-head"><strong className="status-failure">X</strong><span>미확인: {row.missing.join(' · ')}</span></div>
+              <div className="cover-compare-grid">
+                <div className="cover-compare-side">
+                  <strong>EPUB · {row.source}</strong>
+                  {editing === row.phraseIndex ? (
+                    <>
+                      <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={5} aria-label="EPUB 원문 수정" />
+                      <div className="cover-compare-controls">
+                        <button type="button" disabled={saving} onClick={() => void saveCorrection(row.phraseIndex)}>{saving ? '저장 중...' : 'EPUB에 저장'}</button>
+                        <button type="button" onClick={() => setEditing(null)}>취소</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p>{highlight(row.text, row.missing)}</p>
+                      {onApplyEpub && <button type="button" onClick={() => { setEditing(row.phraseIndex); setDraft(row.text); }}>원문 수정</button>}
+                    </>
+                  )}
+                </div>
+                <div className="cover-compare-side">
+                  <strong>PDF {row.candidate ? `· ${row.candidate.page}페이지` : ''}</strong>
+                  <p>{row.candidate ? highlight(row.candidate.text, words(row.candidate.text).filter((token) => row.missing.some((missing) => editDistance(token, missing) <= 2))) : '대응하는 PDF 문구를 찾지 못했습니다.'}</p>
+                  <small>가장 관련성이 높은 PDF 행 · 검토용 후보</small>
+                </div>
+              </div>
             </div>
           ))}
         </div>

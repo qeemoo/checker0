@@ -104,8 +104,8 @@ function evaluate(lines: { page: number; text: string }[], target?: Target) {
   });
 }
 
-export default function EpubCoverPdfCheck({ epubFile, section }: { epubFile: File; section?: CoverSection }) {
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+export default function EpubCoverPdfCheck({ epubFile, section, coverPdf }: { epubFile: File; section?: CoverSection; coverPdf?: File | null }) {
+  const [pdfFile, setPdfFile] = useState<File | null>(coverPdf ?? null);
   const [rows, setRows] = useState<MatchRow[] | null>(null);
   const [targets, setTargets] = useState<Target[]>([]);
   const [working, setWorking] = useState(false);
@@ -118,13 +118,13 @@ export default function EpubCoverPdfCheck({ epubFile, section }: { epubFile: Fil
     { id: 'backcover', label: '뒤표지', file: 'backcover.xhtml' },
   ];
 
-  async function runCheck() {
-    if (!pdfFile) return;
+  async function runCheck(file = pdfFile) {
+    if (!file) return;
     setWorking(true);
     setError('');
     setRows(null);
     try {
-      const [lines, epubTargets] = await Promise.all([extractCoverPdf(pdfFile), extractEpubCover(epubFile)]);
+      const [lines, epubTargets] = await Promise.all([extractCoverPdf(file), extractEpubCover(epubFile)]);
       if (!lines.length) throw new Error('PDF에서 선택 가능한 텍스트를 추출하지 못했습니다. 이미지 PDF는 OCR이 필요합니다.');
       setTargets(epubTargets);
       setRows(lines);
@@ -134,6 +134,23 @@ export default function EpubCoverPdfCheck({ epubFile, section }: { epubFile: Fil
       setWorking(false);
     }
   }
+
+  useEffect(() => {
+    if (!coverPdf) return;
+    let active = true;
+    setWorking(true);
+    setError('');
+    Promise.all([extractCoverPdf(coverPdf), extractEpubCover(epubFile)])
+      .then(([lines, epubTargets]) => {
+        if (!active) return;
+        if (!lines.length) throw new Error('PDF에서 텍스트를 추출하지 못했습니다. 이미지 PDF는 OCR이 필요합니다.');
+        setTargets(epubTargets);
+        setRows(lines);
+      })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'PDF 검사 실패'); })
+      .finally(() => { if (active) setWorking(false); });
+    return () => { active = false; };
+  }, [coverPdf, epubFile]);
 
   const currentFile = sections.find((item) => item.id === selectedSection)?.file;
   const target = targets.find((item) => item.file.toLowerCase() === currentFile);
@@ -145,10 +162,10 @@ export default function EpubCoverPdfCheck({ epubFile, section }: { epubFile: Fil
     <section className="epub-cover-pdf-check">
       <h3>{selectedSection === 'introduce' ? '소개' : selectedSection === 'backcover' ? '뒤표지' : '커버'} PDF 대조</h3>
       <div className="cover-pdf-actions">
-        <label className="cover-pdf-file-label">PDF 선택
+        {!coverPdf && <label className="cover-pdf-file-label">PDF 선택
           <input type="file" accept=".pdf,application/pdf" onChange={(event) => { setPdfFile(event.target.files?.[0] ?? null); setRows(null); setError(''); }} />
-        </label>
-        <button type="button" className="btn-primary" disabled={!pdfFile || working} onClick={runCheck}>{working ? '검사 중...' : '검사'}</button>
+        </label>}
+        {!coverPdf && <button type="button" className="btn-primary" disabled={!pdfFile || working} onClick={() => void runCheck()}>{working ? '검사 중...' : '검사'}</button>}
       </div>
       {error && <p className="status-failure" role="alert">{error}</p>}
       {rows && (

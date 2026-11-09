@@ -247,9 +247,6 @@ export default function EpubMetadataCheck({
           });
         };
         record('소개 · 작가명', expectedAuthor, authorName, containsName(authorName, expectedAuthor), authorName);
-        const creditText = creditedAuthors.map((item) => item.role + ' ' + item.name).join(' / ');
-        record('저작권 · 작가명', expectedAuthor, creditText, creatorMatches,
-          creditedAuthors.map((item) => item.role + item.name).join(''));
         const fieldValue = fieldPrefix.replace(/^\s*[|｜]\s*/, '').trim();
         const fieldNeedle = '읽기쉬운책' + fieldValue;
         checks.push({
@@ -259,6 +256,9 @@ export default function EpubMetadataCheck({
           note: !fieldValue ? '분야 없음' : !bodyPdf ? '본문 PDF가 없어 검증 불가' :
             matchesPdf(fieldNeedle) ? undefined : 'PDF의 분야와 일치하지 않음',
         });
+        const creditText = creditedAuthors.map((item) => item.role + ' ' + item.name).join(' / ');
+        record('저작권 · 작가명', expectedAuthor, creditText, creatorMatches,
+          creditedAuthors.map((item) => item.role + item.name).join(''));
         const publisherOk = containsName(permissionPublisher, publisher);
         const authorOk = Boolean(permissionAuthor && creatorNames.every((name) => norm(permissionAuthor).includes(name)));
         const pdfPermissionOk = Boolean(permissionPublisher && permissionAuthor &&
@@ -302,7 +302,7 @@ export default function EpubMetadataCheck({
   const conformValue = checks.conformsToValue ?? 'dcterms:conformsTo 태그 없음';
   const titleOk = checks.titleXhtml.unmatched === 0;
   const coverOk = isMetadataTextPassed(checks.coverTitle) && isMetadataTextPassed(checks.coverCreator);
-  const copyrightOk = isMetadataTextPassed(checks.copyrightTitle) && (rightsChecks ? rightsChecks.filter((item) => item.label.startsWith('판권 ·') || item.label.startsWith('저작권 ·')).every((item) => item.ok) : isMetadataTextPassed(checks.copyrightCreator));
+  const copyrightOk = rightsChecks ? rightsChecks.filter((item) => item.label.startsWith('저작권 ·')).every((item) => item.ok) : isMetadataTextPassed(checks.copyrightCreator);
   const introduceOk = rightsChecks ? rightsChecks.filter((item) => item.label.startsWith('소개 ·')).every((item) => item.ok) : isMetadataTextPassed(checks.introduceCreator);
   const coverItems = mergeCoverDetails(checks.coverTitle, checks.coverCreator, metadataTitle, metadataCreator);
 
@@ -367,7 +367,9 @@ export default function EpubMetadataCheck({
             <span className="metadata-check-bullet" /><span className="metadata-check-label">소개</span><CheckStatus ok={introduceOk} />
           </button>
           {expanded === 'introduce' && <div className="metadata-check-detail-list">
-            <p className="metadata-check-help">작가 이름이 포함되어 있으면 통과합니다. 아래 검사 결과를 확인하세요.</p>
+            {rightsChecks?.filter((item) => item.label.startsWith('소개 ·')).map((item) => (
+              <div className="metadata-check-item" key={item.label}><div className="rights-check-row"><div><strong>{item.label}</strong><p>기준: {item.expected}</p><p>EPUB: {item.actual || '(없음)'}</p>{item.note && <p>{item.note}</p>}{item.pdf && <details className="rights-pdf-evidence"><summary>PDF {item.pdfPage}페이지 근거</summary><p>{item.pdf.slice(0,1300)}</p></details>}</div><CheckStatus ok={item.ok}/></div></div>
+            ))}
           </div>}
         </div>
         <div className="metadata-check-item">
@@ -375,25 +377,13 @@ export default function EpubMetadataCheck({
             <span className="metadata-check-bullet" /><span className="metadata-check-label">저작권</span><CheckStatus ok={copyrightOk} />
           </button>
           {expanded === 'copyright' && <div className="metadata-check-detail-list">
+            {rightsChecks?.filter((item) => item.label.startsWith('저작권 ·')).map((item) => (
+              <div className="metadata-check-item" key={item.label}><div className="rights-check-row"><div><strong>{item.label}</strong><p>기준: {item.expected}</p><p>EPUB: {item.actual || '(없음)'}</p>{item.note && <p>{item.note}</p>}{item.pdf && <details className="rights-pdf-evidence"><summary>PDF {item.pdfPage}페이지 근거</summary><p>{item.pdf.slice(0,1300)}</p></details>}</div><CheckStatus ok={item.ok}/></div></div>
+            ))}
             <MetadataSubsection label="제목 · copy_title" items={resultDetails('제목', checks.copyrightTitle, metadataTitle)} emptyText="copy_title 클래스를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} onApplyAll={() => runAction(() => onFixAllText((checks.copyrightTitle.details ?? []), metadataTitle), '메타데이터 제목을 적용했습니다.')} />
 
           </div>}
         </div>
-      </div>
-
-      <div className="metadata-check-group">
-        <h3 className="metadata-check-group-title">분야 · 작가 · 출판사 검사</h3>
-        <p className="metadata-check-help">소개와 판권의 작가명, 판권의 출판사명을 도서 기본 정보 및 등록 도서 목록과 대조합니다.</p>
-        {rightsError && <p className="status-failure">{rightsError}</p>}
-        {!rightsChecks && !rightsError && <p className="metadata-check-help">검사 중...</p>}
-        {rightsChecks?.map((item) => (
-          <div className="metadata-check-item" key={item.label}>
-            <div className="rights-check-row">
-              <div><strong>{item.label}</strong><p>기준: {item.expected}</p>{!item.ok && <p>EPUB: {item.actual || '(해당 항목 없음)'}</p>}{item.note && <p>{item.note}</p>}{item.pdf && <details className="rights-pdf-evidence"><summary>PDF {item.pdfPage}페이지 근거 보기</summary><p>{item.pdf.slice(0, 1300)}</p></details>}</div>
-              <CheckStatus ok={item.ok} />
-            </div>
-          </div>
-        ))}
       </div>
 
       <div className="metadata-check-group">

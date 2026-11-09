@@ -10,7 +10,7 @@ type PdfJs = { GlobalWorkerOptions: { workerSrc: string }; getDocument: (input: 
 
 type CoverSection = 'cover' | 'introduce' | 'backcover';
 type MatchRow = { text: string; matched: boolean; possible: boolean; page: number };
-type Target = { file: string; text: string };
+type Target = { file: string; text: string; alt: string };
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const COVER_FILES = /(?:^|\/)(?:cover|introduce|backcover|incover|incover2)\.xhtml$/i;
@@ -89,8 +89,8 @@ async function extractEpubCover(file: File): Promise<Target[]> {
     const doc = new DOMParser().parseFromString(xml, 'application/xhtml+xml');
     if (doc.querySelector('parsererror')) throw new Error(path + ' 파일의 XHTML을 읽을 수 없습니다.');
     const body = doc.querySelector('body');
-    const texts = [body?.textContent ?? '', ...Array.from(body?.querySelectorAll('img[alt]') ?? []).map((img) => img.getAttribute('alt') ?? '')];
-    targets.push({ file: path.split('/').pop() ?? path, text: compact(texts.join(' ')) });
+    const alt = Array.from(body?.querySelectorAll('img[alt]') ?? []).map((img) => img.getAttribute('alt') ?? '').join(' ');
+    targets.push({ file: path.split('/').pop() ?? path, text: compact(body?.textContent ?? ''), alt: compact(alt) });
   }
   return targets;
 }
@@ -103,6 +103,15 @@ function compare(lines: { page: number; text: string }[], targets: Target[]): Ma
     const fragments = normalized.match(/.{5,12}/g) ?? [];
     const hits = fragments.filter((part) => full.includes(part)).length;
     return { ...line, matched, possible: !matched && fragments.length > 0 && hits / fragments.length >= 0.5 };
+  });
+}
+
+function evaluate(lines: { page: number; text: string }[], target?: Target) {
+  return lines.map((line) => {
+    const value = compact(line.text);
+    const inText = Boolean(target && target.text.includes(value));
+    const inAlt = Boolean(target && target.alt.includes(value));
+    return { ...line, matched: inText, inAlt };
   });
 }
 
@@ -134,7 +143,7 @@ export default function EpubCoverPdfCheck({ epubFile, section }: { epubFile: Fil
       const [lines, epubTargets] = await Promise.all([extractCoverPdf(pdfFile), extractEpubCover(epubFile)]);
       if (!lines.length) throw new Error('PDF에서 선택 가능한 텍스트를 추출하지 못했습니다. 이미지 PDF는 OCR이 필요합니다.');
       setTargets(epubTargets);
-      setRows(compare(lines, epubTargets));
+      setRows(lines.map((line) => ({ ...line, matched: false, possible: false })));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '표지 대조 중 오류가 발생했습니다.');
     } finally {
@@ -142,66 +151,36 @@ export default function EpubCoverPdfCheck({ epubFile, section }: { epubFile: Fil
     }
   }
 
-  const sectionTargets = targets.filter((target) => target.file.toLowerCase() === sections.find((section) => section.id === selectedSection)?.file);
-  const sectionRows = rows?.map((row, index) => ({ ...row, index, assigned: assignments[index] ?? 'unassigned' })).filter((row) => row.assigned === selectedSection) ?? [];
-  const checkedRows = compare(sectionRows, sectionTargets);
-  const missing = checkedRows.filter((row, index) => !row.matched && !row.possible && !ignored.includes(sectionRows[index].index)).length;
-  const review = checkedRows.filter((row, index) => !row.matched && row.possible && !ignored.includes(sectionRows[index].index)).length;
-  const matched = checkedRows.filter((row) => row.matched).length;
+  const currentFile = sections.find((item) => item.id === selectedSection)?.file;
+  const target = targets.find((item) => item.file.toLowerCase() === currentFile);
+  const results = evaluate(rows ?? [], target);
+  const allMatched = Boolean(rows?.length && target && results.every((row) => row.matched));
+  const failures = results.filter((row) => !row.matched);
 
   return (
-    <section className="epub-cover-pdf-check" style={{ border: '1px solid #d9e1e8', borderRadius: 12, padding: 20, marginTop: 24, background: '#fff' }}>
-      <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px' }}>{section === 'introduce' ? 'STEP · 소개 (앞·뒤날개)' : section === 'backcover' ? 'STEP · 뒤표지' : 'STEP · 커버'} PDF 대조</h3>
-      <p style={{ color: '#526174', margin: '0 0 16px', lineHeight: 1.7 }}>
-        PDF의 글자 순서가 일정하지 않으므로 추출된 문구를 앞표지·날개·뒤표지로 분류한 뒤 해당 XHTML과 각각 비교합니다.
-        미분류 문구는 통과로 처리하지 않습니다. 이미지 안의 글자는 별도 확인이 필요합니다.
-      </p>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 600 }}>표지 PDF</span>
+    <section className="epub-cover-pdf-check">
+      <h3>{selectedSection === 'introduce' ? '소개' : selectedSection === 'backcover' ? '뒤표지' : '커버'} PDF 대조</h3>
+      <div className="cover-pdf-actions">
+        <label className="cover-pdf-file-label">PDF 선택
           <input type="file" accept=".pdf,application/pdf" onChange={(event) => { setPdfFile(event.target.files?.[0] ?? null); setRows(null); setError(''); }} />
         </label>
-        <button type="button" className="btn-primary" onClick={runCheck} disabled={!pdfFile || working}>{working ? '대조 중...' : '표지 누락 검사'}</button>
+        <button type="button" className="btn-primary" disabled={!pdfFile || working} onClick={runCheck}>{working ? '검사 중...' : '검사'}</button>
       </div>
-      {error && <p role="alert" style={{ color: '#b91c1c', marginTop: 12 }}>{error}</p>}
+      {error && <p className="status-failure" role="alert">{error}</p>}
       {rows && (
-        <div style={{ marginTop: 18 }}>
-          <p style={{ fontSize: 13, color: '#64748b' }}>PDF에서 추출한 {rows.length}개 문구를 아래에서 분류하세요. 책등 문구는 앞표지로 분류하거나 검토 제외할 수 있습니다.</p>
-          {!section && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0' }}>
-            {sections.map((section) => <button key={section.id} type="button" onClick={() => setSelectedSection(section.id)} className={selectedSection === section.id ? 'btn-primary' : 'btn-secondary'}>{section.label} ({rows.filter((_, index) => assignments[index] === section.id).length})</button>)}
-          </div>}
-          <p style={{ fontWeight: 650 }}>대상: {sections.find((section) => section.id === selectedSection)?.file} · 일치 {matched} · 누락 후보 {missing} · 부분 일치 {review}</p>
-          {sectionTargets.length === 0 && <p role="alert" style={{ color: '#b91c1c' }}>해당 XHTML이 EPUB에 없습니다. 자동 통과로 처리하지 않습니다.</p>}
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', margin: '12px 0' }}><input type="checkbox" checked={showMatched} onChange={(event) => setShowMatched(event.target.checked)} /> 일치 문구도 표시</label>
-          <details open>
-            <summary style={{ cursor: 'pointer', fontWeight: 650, padding: '10px 0' }}>PDF 문구 분류 · 미분류 {rows.filter((_, index) => !assignments[index] || assignments[index] === 'unassigned').length}건</summary>
-            <div style={{ maxHeight: 330, overflowY: 'auto', display: 'grid', gap: 8 }}>
-              {rows.map((row, index) => (
-                <div key={index} style={{ display: 'flex', gap: 8, alignItems: 'center', borderBottom: '1px solid #e5e9e5', padding: '8px 0' }}>
-                  <select aria-label={`PDF 문구 ${index + 1} 분류`} value={assignments[index] ?? 'unassigned'} onChange={(event) => setAssignments((previous) => ({ ...previous, [index]: event.target.value as CoverSection | 'unassigned' }))} style={{ minWidth: 115, padding: 6, border: '1px solid #dce3dc', borderRadius: 6 }}>
-                    <option value="unassigned">미분류</option>
-                    {sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}
-                  </select>
-                  <span style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{row.text}</span>
-                </div>
-              ))}
-            </div>
-          </details>
-          <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
-            {sectionRows.map((row, localIndex) => {
-              const result = checkedRows[localIndex];
-              if (result.matched && !showMatched) return null;
-              return <div key={row.index} style={{ padding: 12, border: '1px solid #e5e9e5', borderRadius: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <strong style={{ color: result.matched ? '#27805b' : result.possible ? '#a16207' : '#c34444' }}>{result.matched ? '일치' : ignored.includes(row.index) ? '검토 제외' : result.possible ? '부분 일치' : '누락 후보'}</strong>
-                  <span style={{ fontSize: 12, color: '#64748b' }}>PDF {row.page}페이지</span>
-                  {!result.matched && <button type="button" className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => setIgnored((previous) => previous.includes(row.index) ? previous.filter((value) => value !== row.index) : [...previous, row.index])}>{ignored.includes(row.index) ? '검토 복원' : '의도적 생략'}</button>}
-                </div>
-                <p style={{ margin: '8px 0 0', overflowWrap: 'anywhere' }}>{row.text}</p>
-              </div>;
-            })}
+        <div className="cover-pdf-results">
+          <div className="cover-pdf-summary">
+            <strong className={allMatched ? 'status-success' : 'status-failure'}>{allMatched ? 'O' : 'X'}</strong>
+            <span>{currentFile}</span>
+            <span>{allMatched ? '모든 문구 일치' : target ? `누락 문구 ${failures.length}건` : 'XHTML 파일 없음'}</span>
           </div>
-          <p style={{ fontSize: 12, color: '#64748b', marginTop: 14 }}>현재는 누락 후보를 검토하는 기능입니다. EPUB 원문 수정은 기존 메타데이터 편집 등 해당 수정 기능에서 진행해 주세요. 분류·검토 제외 설정은 페이지 새로고침 시 초기화됩니다.</p>
+          {!allMatched && failures.map((row, index) => (
+            <div className="cover-pdf-issue" key={index}>
+              <strong className="status-failure">X</strong>
+              <span>{row.text}</span>
+              <small>{row.inAlt ? 'alt에만 있음' : 'XHTML 본문 및 alt에서 찾지 못함'} · PDF {row.page}p</small>
+            </div>
+          ))}
         </div>
       )}
     </section>

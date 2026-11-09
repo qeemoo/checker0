@@ -245,7 +245,7 @@ export default function EpubMetadataCheck({
         };
         add('소개 · author-name', expectedAuthor, authorName, Boolean(expectedAuthor && norm(authorName) === norm(expectedAuthor)), authorName);
         add('판권 · 지은이 / 옮긴이', expectedAuthor, creditedAuthors.map((item) => item.role + ' ' + item.name).join(' / '), creatorMatches,
-          creditedAuthors[0]?.name ?? '');
+          creditedAuthors.map((item) => item.role + item.name).join(''));
         add('판권 · 글 © 작가명', '글 ©' + expectedAuthor, permissionAuthor, Boolean(permissionAuthor && creatorNames.includes(norm(permissionAuthor))), '글 ©' + permissionAuthor);
         add('판권 · 도서출판 출판사명', publisher ? '도서출판 ' + publisher : '등록 출판사 정보 없음', permissionPublisher,
           Boolean(publisher && norm(permissionPublisher) === norm(publisher)), '도서출판 ' + permissionPublisher);

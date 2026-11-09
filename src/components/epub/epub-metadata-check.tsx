@@ -370,7 +370,7 @@ export default function EpubMetadataCheck({
           </button>
           {expanded === 'copyright' && <div className="metadata-check-detail-list">
             <MetadataSubsection label="제목 · copy_title" items={resultDetails('제목', checks.copyrightTitle, metadataTitle)} emptyText="copy_title 클래스를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} onApplyAll={() => runAction(() => onFixAllText((checks.copyrightTitle.details ?? []), metadataTitle), '메타데이터 제목을 적용했습니다.')} />
-            <MetadataSubsection label="저자 · 지은이 / 저작권 표기" items={resultDetails('저자', checks.copyrightCreator, metadataCreator)} emptyText="지은이 또는 저작권 표기가 포함된 항목을 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} onApplyAll={() => runAction(() => onFixAllText((checks.copyrightCreator.details ?? []).filter((detail) => detail.targetType === 'copy-author' || detail.targetType === 'copyright-symbol-text'), metadataCreator), '메타데이터 작가명을 적용했습니다.')} />
+
           </div>}
         </div>
         <div className="metadata-check-item">
@@ -378,13 +378,13 @@ export default function EpubMetadataCheck({
             <span className="metadata-check-bullet" /><span className="metadata-check-label">소개</span><CheckStatus ok={introduceOk} />
           </button>
           {expanded === 'introduce' && <div className="metadata-check-detail-list">
-            <MetadataSubsection label="저자 · author-name" items={resultDetails('저자', checks.introduceCreator, metadataCreator)} emptyText="author-name 클래스를 가진 p 태그를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} onApplyAll={() => runAction(() => onFixAllText((checks.introduceCreator.details ?? []), metadataCreator), '메타데이터 작가명을 적용했습니다.')} />
+            <p className="metadata-check-help">작가 이름이 포함되어 있으면 통과합니다. 아래 검사 결과를 확인하세요.</p>
           </div>}
         </div>
       </div>
 
       <div className="metadata-check-group">
-        <h3 className="metadata-check-group-title">PDF 추가 검증 · 작가 / 출판사 / 분야</h3>
+        <h3 className="metadata-check-group-title">분야 · 작가 · 출판사 검사</h3>
         <p className="metadata-check-help">소개와 판권의 작가명, 판권의 출판사명을 도서 기본 정보 및 등록 도서 목록과 대조합니다.</p>
         {rightsError && <p className="status-failure">{rightsError}</p>}
         {!rightsChecks && !rightsError && <p className="metadata-check-help">검사 중...</p>}

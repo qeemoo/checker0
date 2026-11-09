@@ -45,11 +45,11 @@ async function loadPdfJs(): Promise<PdfJs> {
   return pdfJsLoading;
 }
 
-async function extractCoverPdf(file: File): Promise<{ page: number; text: string }[]> {
+async function extractCoverPdf(file: File): Promise<MatchRow[]> {
   const pdfjs = await loadPdfJs();
   pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-  const lines: { page: number; text: string }[] = [];
+  const lines: MatchRow[] = [];
   try {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);

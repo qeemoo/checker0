@@ -19,7 +19,7 @@ interface Props {
 
 type Draft = { tocText: string; contentText: string };
 type AlignedPair = { toc?: TocContentEntry; content?: TocContentEntry; excluded?: boolean };
-const DEFAULT_EXCLUDED = ['작가 소개', '판권지', '글의 순서'];
+const DEFAULT_EXCLUDED = ['2026 읽기쉬운책 160권을 소개합니다', '판권지', '글의 순서'];
 const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 const alignText = (value: string) => normalize(value).replace(/^[•●○◦▪▫■□◆◇‣⁃∙·]+\s*/u, '');
 

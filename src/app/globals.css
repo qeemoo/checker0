@@ -2530,3 +2530,51 @@ body { background:#fff; color:var(--ink); }
 .metadata-match-mark { display:inline-grid; place-items:center; width:19px; height:19px; border-radius:50%; font-size:12px; font-weight:800; line-height:1; }
 .metadata-match-mark.is-match { color:#167a53; background:#edf8f1; }
 .metadata-match-mark.is-mismatch { color:#c53030; background:#fff0f0; }
+
+
+/* High-contrast monochrome interface. Color is reserved for validation only. */
+:root { --ink:#111111; --muted:#525252; --line:#dedede; --surface:#ffffff; --canvas:#ffffff; --accent:#111111; --accent-dark:#000000; --success:#087443; --danger:#c42332; }
+body { background:#fff; color:#111; }
+.app-title,.app-eyebrow,.app-eyebrow::before,.app-description,.panel h2,.panel h3,.workflow-brand,.workflow-progress-meta strong { color:#111; }
+.app-eyebrow::before { background:#111; }
+.app-description,.upload-hint,.workflow-progress-meta,.workflow-step-name,.metadata-check-count { color:#525252; }
+.panel { border:1px solid #dedede; border-radius:10px; background:#fff; box-shadow:none; }
+.panel h2,.panel h3 { font-weight:750; }
+.upload-dropzone { background:#fff; border:1.5px dashed #888; border-radius:10px; }
+.upload-dropzone:hover,.upload-dropzone.is-dragging { background:#f7f7f7; border-color:#111; box-shadow:none; transform:none; }
+.upload-icon,.download-step-icon { background:#f1f1f1; border:1px solid #dedede; color:#111; }
+.upload-title { color:#111; }
+.btn-primary,.metadata-save-button,.metadata-check-fix-button,.toc-edit-modal-surface .toc-inline-edit-actions button:first-child { background:#111; border-color:#111; color:#fff; box-shadow:none; }
+.btn-primary:hover,.metadata-save-button:hover:not(:disabled),.metadata-check-fix-button:hover:not(:disabled) { background:#000; border-color:#000; transform:none; box-shadow:none; }
+.btn-secondary,.btn-soft { background:#fff; border-color:#bdbdbd; color:#111; }
+.btn-secondary:hover,.btn-soft:hover { background:#f4f4f4; border-color:#111; color:#111; }
+button:focus-visible,input:focus-visible,summary:focus-visible { outline:2px solid #111; outline-offset:2px; }
+input[type="text"],input:not([type]),.metadata-input { border-color:#bdbdbd; background:#fff; color:#111; }
+input[type="text"]:focus,input:not([type]):focus,.metadata-input:focus { border-color:#111; box-shadow:0 0 0 2px rgba(0,0,0,.10); }
+.workflow-sticky-header { background:#fff; border-color:#e5e5e5; box-shadow:none; }
+.workflow-brand,.workflow-action { color:#111; }
+.workflow-action:hover { color:#000; background:#f4f4f4; }
+.workflow-progress { border-color:#dedede; background:#fff; box-shadow:none; }
+.workflow-progress-track { background:#e5e5e5; }
+.workflow-progress-value { background:#111; }
+.workflow-step-link .workflow-step-dot { border-color:#bdbdbd; color:#525252; background:#fff; }
+.workflow-step-link .workflow-step-name { color:#525252; }
+.workflow-step-link.is-current .workflow-step-dot { background:#111; border-color:#111; color:#fff; }
+.workflow-step-link.is-current .workflow-step-name { color:#111; }
+.workflow-step-link.is-past .workflow-step-dot { background:#fff; border-color:#111; color:#111; }
+.workflow-step-link.is-past .workflow-step-name { color:#111; }
+.workflow-step-link.has-error .workflow-step-dot,.workflow-step-link.is-past.has-error .workflow-step-dot { background:#fff; border-color:#c42332; color:#c42332; }
+.workflow-step-link.has-error .workflow-step-name { color:#c42332; }
+.workflow-bottom-navigation { border-top:0 !important; padding-top:0 !important; margin-top:24px; }
+.summary-tile,.css-preview-body,.metadata-check-detail-list,.metadata-title-bulk-action,.metadata-reference-results { background:#fafafa; border-color:#e0e0e0; }
+.metadata-check-trigger:hover,.metadata-check-trigger.is-open { background:#f4f4f4; color:#111; }
+.metadata-check-trigger:hover .metadata-check-label,.metadata-check-trigger.is-open .metadata-check-label,.metadata-check-trigger:hover .metadata-check-chevron { color:#111; }
+.metadata-check-detail-list { border-left-color:#d4d4d4; }
+.metadata-check-fix-button:hover:not(:disabled) { box-shadow:none; }
+.loading-message { background:#f5f5f5; border-color:#dedede; color:#111; }
+.error-message { background:#fff6f6; border-color:#e6a5ab; color:#b91c2b; }
+.status-success,.metadata-check-match { color:#087443 !important; }
+.status-failure,.metadata-check-mismatch { color:#c42332 !important; }
+.metadata-match-mark { width:20px; height:20px; font-size:13px; font-weight:800; }
+.metadata-match-mark.is-match { background:#087443; color:#fff; }
+.metadata-match-mark.is-mismatch { background:#c42332; color:#fff; }

@@ -2638,3 +2638,15 @@ input[type="text"]:focus,input:not([type]):focus,.metadata-input:focus { border-
 .cover-pdf-issue span { overflow-wrap:anywhere; color:#101828; }
 .cover-pdf-issue small { color:#475467; font-size:11px; }
 @media(max-width:640px){.epub-cover-pdf-check{padding:18px}.cover-pdf-summary span:last-child{margin-left:0}}
+
+
+/* Initial three-file intake */
+.initial-upload-panel { max-width:720px; margin:36px auto 0; padding:32px; border:1px solid #d0d5dd; border-radius:12px; background:#fff; }
+.initial-upload-panel h1 { margin:0 0 8px; color:#101828; font-size:24px; font-weight:750; }
+.initial-upload-panel > p { margin:0 0 24px; color:#475467; font-size:13px; }
+.initial-upload-fields { display:grid; gap:12px; }
+.initial-upload-fields label { display:grid; grid-template-columns:90px minmax(0,1fr); align-items:center; gap:6px 12px; padding:14px; border:1px solid #d0d5dd; border-radius:8px; color:#101828; font-size:14px; font-weight:700; }
+.initial-upload-fields label span { min-width:0; overflow:hidden; color:#475467; font-size:12px; font-weight:450; text-overflow:ellipsis; white-space:nowrap; }
+.initial-upload-fields input { grid-column:2; width:100%; max-width:100%; color:#344054; font-size:12px; }
+.initial-upload-submit { width:100%; margin-top:22px; min-height:46px; }
+@media(max-width:560px){.initial-upload-panel{padding:20px}.initial-upload-fields label{grid-template-columns:1fr}.initial-upload-fields input{grid-column:1}}

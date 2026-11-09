@@ -2525,3 +2525,8 @@ body { background:#fff; color:var(--ink); }
 .workflow-step-link.has-error .workflow-step-dot { background:#fff1f1; border-color:var(--danger); color:var(--danger); }
 .status-success, .metadata-check-match { color:var(--success)!important; }
 .status-failure, .metadata-check-mismatch { color:var(--danger)!important; }
+
+.metadata-field-heading { display:inline-flex; align-items:center; gap:9px; }
+.metadata-match-mark { display:inline-grid; place-items:center; width:19px; height:19px; border-radius:50%; font-size:12px; font-weight:800; line-height:1; }
+.metadata-match-mark.is-match { color:#167a53; background:#edf8f1; }
+.metadata-match-mark.is-mismatch { color:#c53030; background:#fff0f0; }

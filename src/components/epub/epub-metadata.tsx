@@ -15,36 +15,10 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
   const [title, setTitle] = useState(draftMetadata.title);
   const [creator, setCreator] = useState(draftMetadata.creator);
   const [saving, setSaving] = useState(false);
-  const [reference, setReference] = useState<EpubMetadata>({ title: '', creator: '' });
-  const [referenceDraft, setReferenceDraft] = useState<EpubMetadata>({ title: '', creator: '' });
-  const [referenceSaved, setReferenceSaved] = useState(false);
-
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem('checker0-book-reference-v1');
-      if (!saved) return;
-      const parsed = JSON.parse(saved) as EpubMetadata;
-      const next = { title: String(parsed.title ?? ''), creator: String(parsed.creator ?? '') };
-      setReference(next);
-      setReferenceDraft(next);
-      setReferenceSaved(Boolean(next.title && next.creator));
-    } catch { /* invalid browser storage; leave reference empty */ }
-  }, []);
-
-  function saveReference() {
-    const next = { title: referenceDraft.title.trim(), creator: referenceDraft.creator.trim() };
-    if (!next.title || !next.creator) return;
-    try {
-      window.localStorage.setItem('checker0-book-reference-v1', JSON.stringify(next));
-      setReference(next);
-      setReferenceSaved(true);
-    } catch { setToast({ type: 'error', message: '기준 도서 정보를 저장하지 못했습니다.' }); }
-  }
-
   const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/g, '').trim();
-  const matchedBook = BOOK_REFERENCES.find((book) => normalize(book.title) === normalize(metadata.title));
-  const effectiveReference = referenceSaved ? reference : matchedBook ? { title: matchedBook.title, creator: matchedBook.creator } : null;
-  const bookInList = Boolean(matchedBook);
+  const matchedBook = BOOK_REFERENCES.find((book) => normalize(book.title) === normalize(title));
+  const titleMatched = Boolean(matchedBook);
+  const authorMatched = Boolean(matchedBook && normalize(matchedBook.creator) === normalize(creator));
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const hasChanges = title.trim() !== metadata.title || creator.trim() !== metadata.creator;
@@ -101,7 +75,7 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
       </div>
       <form id="epub-metadata-form" onSubmit={submit} className="metadata-form">
         <label className="block text-sm font-medium">
-          도서 제목
+          <span className="metadata-field-heading">도서 제목 <span className={titleMatched ? 'metadata-match-mark is-match' : 'metadata-match-mark is-mismatch'} aria-label={titleMatched ? '일치' : '불일치'}>{titleMatched ? 'O' : 'X'}</span></span>
           <input
             value={title}
             onChange={(event) => updateDraft(event.target.value, creator)}
@@ -109,7 +83,7 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
           />
         </label>
         <label className="block text-sm font-medium">
-          저자
+          <span className="metadata-field-heading">저자 <span className={authorMatched ? 'metadata-match-mark is-match' : 'metadata-match-mark is-mismatch'} aria-label={authorMatched ? '일치' : '불일치'}>{authorMatched ? 'O' : 'X'}</span></span>
           <input
             value={creator}
             onChange={(event) => updateDraft(title, event.target.value)}
@@ -117,26 +91,6 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
           />
         </label>
       </form>
-      <div className="metadata-reference-check">
-        <div className="metadata-reference-heading">
-          <div>
-            <h3>기준 도서 정보 대조 · 등록 {BOOK_REFERENCES.length}종</h3>
-            <p>제공된 출판사 서지 목록에서 EPUB 제목으로 자동 검색합니다. 수동 기준값을 저장하면 해당 값이 우선합니다.</p>
-          </div>
-          <button type="button" className="btn-secondary" onClick={saveReference} disabled={!referenceDraft.title.trim() || !referenceDraft.creator.trim()}>기준 정보 저장</button>
-        </div>
-        <div className="metadata-reference-fields">
-          <label>기준 도서 제목<input className="metadata-input" value={referenceDraft.title} onChange={(event) => setReferenceDraft((prev) => ({ ...prev, title: event.target.value }))} placeholder="나중에 입력할 도서 제목" /></label>
-          <label>기준 저자<input className="metadata-input" value={referenceDraft.creator} onChange={(event) => setReferenceDraft((prev) => ({ ...prev, creator: event.target.value }))} placeholder="나중에 입력할 저자명" /></label>
-        </div>
-        {!effectiveReference ? <p className="metadata-reference-pending">목록에서 해당 도서를 찾지 못했습니다 · 검토 필요 (자동 일치 처리하지 않음)</p> : (
-          <div className="metadata-reference-results">
-            <p>{referenceSaved ? '수동 저장 기준' : bookInList ? '제공된 도서 목록 기준' : '기준 정보'}</p>
-            <p className={normalize(effectiveReference.title) === normalize(metadata.title) ? 'status-success' : 'status-failure'}>제목: {normalize(effectiveReference.title) === normalize(metadata.title) ? '일치' : '불일치'} · 기준: {effectiveReference.title} · EPUB: {metadata.title || '(없음)'}</p>
-            <p className={normalize(effectiveReference.creator) === normalize(metadata.creator) ? 'status-success' : 'status-failure'}>저자: {normalize(effectiveReference.creator) === normalize(metadata.creator) ? '일치' : '불일치'} · 기준: {effectiveReference.creator} · EPUB: {metadata.creator || '(없음)'}</p>
-          </div>
-        )}
-      </div>
       {toast && (
         <div
           className={`metadata-toast ${toast.type === 'success' ? 'is-success' : 'is-error'}`}

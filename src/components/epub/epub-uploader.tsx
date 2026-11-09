@@ -82,6 +82,7 @@ function stepFromPath(pathname: string): WorkflowStep {
 
 export default function EpubUploader() {
   const multiFileInputRef = useRef<HTMLInputElement>(null);
+  const workflowStepsRef = useRef<HTMLDivElement>(null);
   const [uploadDragging, setUploadDragging] = useState(false);
   const [uploadEpub, setUploadEpub] = useState<File | null>(null);
   const [uploadBodyPdf, setUploadBodyPdf] = useState<File | null>(null);
@@ -146,6 +147,15 @@ export default function EpubUploader() {
     loiFigureFixes.length > 0 || deletedImagePaths.length > 0;
 
   const currentStepIndex = WORKFLOW_STEPS.findIndex((step) => step.id === currentStep);
+  useEffect(() => {
+    const container = workflowStepsRef.current;
+    if (!container || !originalFile) return;
+    const active = container.querySelector<HTMLElement>('.workflow-step-link.is-current');
+    if (!active) return;
+    const target = active.offsetLeft - container.offsetLeft - (container.clientWidth - active.clientWidth) / 2;
+    container.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+  }, [currentStep, originalFile]);
+
 
   function hasStepError(step: WorkflowStep): boolean {
     if (!analysis) return false;
@@ -885,7 +895,7 @@ export default function EpubUploader() {
                 style={{ width: `${((currentStepIndex + 1) / WORKFLOW_STEPS.length) * 100}%` }}
               />
             </div>
-            <div className="workflow-step-links">
+            <div className="workflow-step-links" ref={workflowStepsRef}>
               {WORKFLOW_STEPS.map((step, index) => (
                 <button
                   key={step.id}

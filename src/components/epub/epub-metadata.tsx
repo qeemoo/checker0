@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { EpubMetadata } from '../../types/epub';
+import { BOOK_REFERENCES } from '../../lib/epub/book-references';
 
 interface Props {
   metadata: EpubMetadata;
@@ -116,8 +117,8 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
       <div className="metadata-reference-check">
         <div className="metadata-reference-heading">
           <div>
-            <h3>기준 도서 정보 대조</h3>
-            <p>완성된 EPUB의 메타데이터와 비교할 기준값입니다. 이 브라우저에 저장되며 다른 기기와 동기화되지 않습니다.</p>
+            <h3>기준 도서 정보 대조 · 등록 {BOOK_REFERENCES.length}종</h3>
+            <p>제공된 출판사 서지 목록에서 EPUB 제목으로 자동 검색합니다. 수동 기준값을 저장하면 해당 값이 우선합니다.</p>
           </div>
           <button type="button" className="btn-secondary" onClick={saveReference} disabled={!referenceDraft.title.trim() || !referenceDraft.creator.trim()}>기준 정보 저장</button>
         </div>
@@ -125,10 +126,11 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
           <label>기준 도서 제목<input className="metadata-input" value={referenceDraft.title} onChange={(event) => setReferenceDraft((prev) => ({ ...prev, title: event.target.value }))} placeholder="나중에 입력할 도서 제목" /></label>
           <label>기준 저자<input className="metadata-input" value={referenceDraft.creator} onChange={(event) => setReferenceDraft((prev) => ({ ...prev, creator: event.target.value }))} placeholder="나중에 입력할 저자명" /></label>
         </div>
-        {!referenceSaved ? <p className="metadata-reference-pending">기준 도서 정보 미등록 · 대조 대기</p> : (
+        {!effectiveReference ? <p className="metadata-reference-pending">목록에서 해당 도서를 찾지 못했습니다 · 검토 필요 (자동 일치 처리하지 않음)</p> : (
           <div className="metadata-reference-results">
-            <p className={normalize(reference.title) === normalize(metadata.title) ? 'status-success' : 'status-failure'}>제목: {normalize(reference.title) === normalize(metadata.title) ? '일치' : '불일치'} · EPUB: {metadata.title || '(없음)'}</p>
-            <p className={normalize(reference.creator) === normalize(metadata.creator) ? 'status-success' : 'status-failure'}>저자: {normalize(reference.creator) === normalize(metadata.creator) ? '일치' : '불일치'} · EPUB: {metadata.creator || '(없음)'}</p>
+            <p>{referenceSaved ? '수동 저장 기준' : bookInList ? '제공된 도서 목록 기준' : '기준 정보'}</p>
+            <p className={normalize(effectiveReference.title) === normalize(metadata.title) ? 'status-success' : 'status-failure'}>제목: {normalize(reference.title) === normalize(metadata.title) ? '일치' : '불일치'} · 기준: {effectiveReference.title} · EPUB: {metadata.title || '(없음)'}</p>
+            <p className={normalize(effectiveReference.creator) === normalize(metadata.creator) ? 'status-success' : 'status-failure'}>저자: {normalize(reference.creator) === normalize(metadata.creator) ? '일치' : '불일치'} · 기준: {effectiveReference.creator} · EPUB: {metadata.creator || '(없음)'}</p>
           </div>
         )}
       </div>

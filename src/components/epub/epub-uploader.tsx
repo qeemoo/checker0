@@ -20,6 +20,7 @@ import EpubMetadataCheck from './epub-metadata-check';
 import EpubStructureCheck from './epub-structure-check';
 import EpubLoiCheck from './epub-loi-check';
 import EpubCodeResults from './epub-code-results';
+import EpubCoverPdfCheck from './epub-cover-pdf-check';
 import EpubTocContentResults from './epub-toc-content-results';
 import EpubCssCleaner from './epub-css-cleaner';
 import EpubFinalReport from './epub-final-report';
@@ -904,6 +905,8 @@ export default function EpubUploader() {
               onSave={updateMetadata}
             />
           )}
+
+          {currentStep === 'metadata' && <EpubCoverPdfCheck epubFile={originalFile} />}
 
           {currentStep === 'metadata-check' && (
             <EpubMetadataCheck

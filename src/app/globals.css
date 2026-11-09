@@ -2650,3 +2650,22 @@ input[type="text"]:focus,input:not([type]):focus,.metadata-input:focus { border-
 .initial-upload-fields input { grid-column:2; width:100%; max-width:100%; color:#344054; font-size:12px; }
 .initial-upload-submit { width:100%; margin-top:22px; min-height:46px; }
 @media(max-width:560px){.initial-upload-panel{padding:20px}.initial-upload-fields label{grid-template-columns:1fr}.initial-upload-fields input{grid-column:1}}
+
+
+/* Original dropzone presentation, extended to three files */
+.initial-upload-simple { max-width:760px; margin:0 auto; padding:0; border:0; background:transparent; }
+.initial-multi-dropzone { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:290px; padding:44px 24px; text-align:center; cursor:pointer; transition:border-color .15s,background .15s; }
+.initial-multi-dropzone .upload-icon { display:grid; place-items:center; width:48px; height:48px; margin-bottom:18px; font-size:24px; }
+.initial-multi-dropzone .upload-title { margin:0 0 8px; font-size:19px; font-weight:750; }
+.initial-multi-dropzone .upload-hint { margin:0; font-size:13px; }
+.initial-upload-open { display:inline-flex; align-items:center; justify-content:center; min-height:38px; margin-top:20px; padding:0 18px; border:1px solid #175cd3; border-radius:8px; background:#fff; color:#175cd3; font-size:13px; font-weight:700; }
+.initial-multi-dropzone:hover .initial-upload-open,.initial-multi-dropzone.is-dragging .initial-upload-open { background:#175cd3; color:#fff; }
+.initial-upload-selected { display:grid; gap:0; margin-top:18px; border:1px solid #d0d5dd; border-radius:9px; overflow:hidden; }
+.initial-upload-selected > div { display:grid; grid-template-columns:95px minmax(0,1fr); gap:12px; padding:12px 16px; border-bottom:1px solid #eaecf0; font-size:13px; }
+.initial-upload-selected > div:last-of-type { border-bottom:0; }
+.initial-upload-selected strong { color:#344054; }
+.initial-upload-selected span { overflow:hidden; color:#101828; text-overflow:ellipsis; white-space:nowrap; }
+.initial-upload-swap { justify-self:end; margin:0 12px 12px; padding:7px 10px; border:0; background:transparent; color:#175cd3; font-size:12px; font-weight:700; cursor:pointer; }
+.initial-upload-swap:hover { text-decoration:underline; }
+.initial-upload-simple .initial-upload-submit { width:100%; margin-top:16px; }
+@media(max-width:560px){.initial-multi-dropzone{min-height:245px;padding:30px 14px}.initial-multi-dropzone .upload-title{font-size:16px}}

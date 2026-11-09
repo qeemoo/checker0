@@ -62,7 +62,7 @@ async function sha256(zip: JSZip, path: string): Promise<string | null> {
   const file = zip.file(path);
   if (!file) return null;
   const bytes = await file.async('uint8array');
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
   return Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, '0')).join('');
 }
 

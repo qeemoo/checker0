@@ -2617,3 +2617,24 @@ input[type="text"]:focus,input:not([type]):focus,.metadata-input:focus { border-
 .metadata-check-detail-list { background:#f8fafc; border-color:#d0d5dd; }
 .metadata-match-mark.is-match { background:#087443; color:#fff; }
 .metadata-match-mark.is-mismatch { background:#c42332; color:#fff; }
+
+
+/* Shared controls and compact PDF review */
+.metadata-match-mark,.metadata-match-mark.is-match,.metadata-match-mark.is-mismatch { width:auto; height:auto; border:0; border-radius:0; background:transparent; font-size:15px; font-weight:800; }
+.metadata-match-mark.is-match { color:#087443; }
+.metadata-match-mark.is-mismatch { color:#c42332; }
+.btn-primary,.btn-secondary,.btn-soft,.metadata-save-button,.metadata-check-fix-button,.cover-pdf-actions button { min-height:40px; padding:0 16px; border-radius:8px; font-size:13px; font-weight:700; line-height:1.3; box-shadow:none; transform:none; }
+.epub-cover-pdf-check { margin-top:24px; padding:24px; border:1px solid #d0d5dd; border-radius:10px; background:#fff; }
+.epub-cover-pdf-check h3 { margin:0 0 20px; padding:0; border:0; color:#101828; font-size:18px; font-weight:750; }
+.cover-pdf-actions { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+.cover-pdf-file-label { display:flex; align-items:center; flex-wrap:wrap; gap:10px; color:#101828; font-size:13px; font-weight:650; }
+.cover-pdf-file-label input { max-width:100%; font-size:12px; color:#344054; }
+.cover-pdf-results { margin-top:22px; }
+.cover-pdf-summary { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px 0; border-bottom:1px solid #eaecf0; font-size:13px; color:#344054; }
+.cover-pdf-summary strong { font-size:18px; }
+.cover-pdf-summary span:last-child { margin-left:auto; }
+.cover-pdf-issue { display:grid; grid-template-columns:20px minmax(0,1fr); gap:4px 10px; padding:14px 0; border-bottom:1px solid #eaecf0; font-size:13px; }
+.cover-pdf-issue strong { grid-row:span 2; font-size:15px; }
+.cover-pdf-issue span { overflow-wrap:anywhere; color:#101828; }
+.cover-pdf-issue small { color:#475467; font-size:11px; }
+@media(max-width:640px){.epub-cover-pdf-check{padding:18px}.cover-pdf-summary span:last-child{margin-left:0}}

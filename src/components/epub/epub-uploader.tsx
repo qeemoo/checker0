@@ -99,6 +99,7 @@ export default function EpubUploader() {
     creator: '',
   });
   const [loading, setLoading] = useState(false);
+  const [uploadChecking, setUploadChecking] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [accessibilityModified, setAccessibilityModified] = useState(false);
@@ -299,6 +300,7 @@ export default function EpubUploader() {
     }
 
     setLoading(true);
+    setUploadChecking(true);
     const spinnerStartedAt = Date.now();
     // 먼저 로딩 상태를 렌더링하고, 최소한 잠깐은 진행 표시를 보여줍니다.
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -325,8 +327,8 @@ export default function EpubUploader() {
         ? await analyzeEpub(fileToAnalyze)
         : originalAnalysis;
 
-      setOriginalFile(file);
       setCurrentStep('metadata');
+      setOriginalFile(file);
       window.history.pushState({ epubChecker: true }, '', '/metadata');
       setAnalysis(finalAnalysis);
       setMetadata({ ...originalAnalysis.metadata });
@@ -352,6 +354,7 @@ export default function EpubUploader() {
     } finally {
       const remaining = Math.max(0, 650 - (Date.now() - spinnerStartedAt));
       if (remaining) await new Promise<void>((resolve) => setTimeout(resolve, remaining));
+      setUploadChecking(false);
       setLoading(false);
     }
   }
@@ -823,6 +826,7 @@ export default function EpubUploader() {
 
   return (
     <main className={`app-shell ${originalFile ? 'has-workflow' : ''}`}>
+      {uploadChecking && <div className="upload-check-overlay" role="status" aria-live="polite"><div className="upload-check-modal"><span className="upload-check-spinner" aria-hidden="true" /><strong>EPUB 검사 중</strong><span>파일을 분석하고 있습니다.</span></div></div>}
       {!originalFile ? (
         <>
           <div className="upload-top-space" aria-hidden="true" />
@@ -932,7 +936,7 @@ export default function EpubUploader() {
 
           {/* PDF upload and classification state stays mounted between the three cover steps. */}
           <div style={{ display: currentStep === 'cover' || currentStep === 'introduce' || currentStep === 'backcover' ? 'block' : 'none' }}>
-            <EpubCoverPdfCheck epubFile={originalFile} coverPdf={uploadCoverPdf} section={currentStep === 'introduce' ? 'introduce' : currentStep === 'backcover' ? 'backcover' : 'cover'} />
+            <EpubCoverPdfCheck epubFile={originalFile} coverPdf={uploadCoverPdf} onApplyEpub={(file) => { setOriginalFile(file); setUploadEpub(file); }} section={currentStep === 'introduce' ? 'introduce' : currentStep === 'backcover' ? 'backcover' : 'cover'} />
           </div>
 
           {currentStep === 'metadata-check' && (

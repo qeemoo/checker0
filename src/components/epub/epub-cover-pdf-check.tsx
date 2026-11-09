@@ -143,13 +143,7 @@ function evaluate(lines: MatchRow[], target?: Target) {
   });
   return (target?.phrases ?? []).map((phrase, phraseIndex) => {
     const tokens = words(phrase.text).map(compareCompact).filter(Boolean);
-    // 모든 표지에 동일하게 들어가는 안내문은 PDF 추출 결과를 사용하지 않고 고정 원문으로 검사합니다.
-    const standard = compareCompact(STANDARD_NOTICE);
-    const noticeAnchors = ['국립장애인도서관', '발달장애인', '느린학습자', '읽기쉬운책', '160종의도서', '쉬운문장표현', '이미지활용'];
-    const normalizedPhrase = compareCompact(phrase.text);
-    const noticeHits = tokens.filter((token) => standard.includes(token)).length;
-    const isStandardNotice = noticeAnchors.some((anchor) => normalizedPhrase.includes(anchor)) || (tokens.length >= 4 && noticeHits >= 3 && noticeHits / tokens.length >= 0.5);
-    const missing = [...new Set(tokens.filter((token) => isStandardNotice ? !standard.includes(token) : !regions.some((region) => region.normalized.includes(token))))];
+    const missing = [...new Set(tokens.filter((token) => !regions.some((region) => region.normalized.includes(token))))];
     const candidates = regions.flatMap((region) => region.lines.map((line, index) => {
       const context = region.lines.slice(Math.max(0, index - 1), index + 4).map((item) => item.text).join('\n');
       const normalized = compareCompact(context);
@@ -157,7 +151,7 @@ function evaluate(lines: MatchRow[], target?: Target) {
       return { page: line.page, text: context, score };
     })).sort((left, right) => right.score - left.score);
     const candidate = candidates[0];
-    return { ...phrase, phraseIndex, matched: missing.length === 0, missing, isStandardNotice, candidate: isStandardNotice ? { page: 0, text: STANDARD_NOTICE, score: 1 } : candidate?.score ? candidate : null };
+    return { ...phrase, phraseIndex, matched: missing.length === 0, missing, candidate: candidate?.score ? candidate : null };
   });
 }
 
@@ -270,8 +264,15 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf, onApply
 
   const currentFile = sections.find((item) => item.id === selectedSection)?.file;
   const target = targets.find((item) => item.file.toLowerCase() === currentFile);
-  const results = evaluate(rows ?? [], target);
-  const allMatched = Boolean(rows && target && results.every((row) => row.matched));
+  // 공통 안내문은 PDF에서 검색하지 않고 introduce.xhtml의 EPUB 원문에서만 확인합니다.
+  const noticeNormalized = compareCompact(STANDARD_NOTICE);
+  const epubNoticeText = (target?.phrases ?? []).map((phrase) => phrase.text).join(' ');
+  const noticePresent = compareCompact(epubNoticeText).includes(noticeNormalized);
+  const noticeFragments = ['국립장애인도서관', '발달장애인과 느린 학습자', '읽기쉬운책', '160종의 도서', '이미지 활용'];
+  const isNoticePhrase = (text: string) => noticeFragments.some((fragment) => compareCompact(text).includes(compareCompact(fragment))) || (compareCompact(text).length > 35 && noticeNormalized.includes(compareCompact(text)));
+  const results = evaluate(rows ?? [], target).filter((row) => selectedSection !== 'introduce' || !isNoticePhrase(row.text));
+  const noticeMissing = selectedSection === 'introduce' && Boolean(target) && !noticePresent;
+  const allMatched = Boolean(rows && target && results.every((row) => row.matched) && !noticeMissing);
   const failures = results.filter((row) => !row.matched);
 
   return (
@@ -289,8 +290,15 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf, onApply
           <div className="cover-pdf-summary">
             <strong className={allMatched ? 'status-success' : 'status-failure'}>{allMatched ? 'O' : 'X'}</strong>
             <span>{currentFile}</span>
-            <span>{allMatched ? 'EPUB 문구 모두 확인' : target ? `누락 문구 ${failures.length}건` : 'XHTML 파일 없음'}</span>
+            <span>{allMatched ? 'EPUB 문구 모두 확인' : target ? `누락 문구 ${failures.length + (noticeMissing ? 1 : 0)}건` : 'XHTML 파일 없음'}</span>
           </div>
+          {noticeMissing && <div className="cover-compare-issue">
+            <div className="cover-compare-head"><strong className="status-failure">X</strong><strong>뒷날개 누락</strong></div>
+            <div className="cover-compare-grid">
+              <div className="cover-compare-side"><strong>EPUB · introduce.xhtml</strong><p>공통 안내문이 없거나 기준 문장과 다릅니다.</p></div>
+              <div className="cover-compare-side"><strong>뒷날개 필수 문구</strong><p>{STANDARD_NOTICE}</p><small>PDF는 확인하지 않습니다. EPUB에 이 문장이 있는지만 검사합니다.</small></div>
+            </div>
+          </div>}
           {!allMatched && failures.map((row) => (
             <div className="cover-compare-issue" key={row.phraseIndex}>
               <div className="cover-compare-head"><strong className="status-failure">X</strong><span>미확인: {row.missing.join(' · ')}</span></div>
@@ -313,9 +321,9 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf, onApply
                   )}
                 </div>
                 <div className="cover-compare-side">
-                  <strong>{row.isStandardNotice ? '공통 안내문 · 기준 원문' : `PDF ${row.candidate ? `· ${row.candidate.page}페이지` : ''}`}</strong>
+                  <strong>{`PDF ${row.candidate ? `· ${row.candidate.page}페이지` : ''}`}</strong>
                   <p>{row.candidate ? highlight(row.candidate.text, words(row.candidate.text).filter((token) => row.missing.some((missing) => editDistance(token, missing) <= 2))) : '대응하는 PDF 문구를 찾지 못했습니다.'}</p>
-                  <small>{row.isStandardNotice ? 'PDF와 비교하지 않고 고정된 공통 문구와 대조합니다.' : '가장 관련성이 높은 PDF 행 · 검토용 후보'}</small>
+                  <small>{'가장 관련성이 높은 PDF 행 · 검토용 후보'}</small>
                 </div>
               </div>
             </div>

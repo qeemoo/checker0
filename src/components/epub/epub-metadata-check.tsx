@@ -445,7 +445,7 @@ export default function EpubMetadataCheck({
           {expanded === 'title' && <div className="metadata-check-detail-list metadata-title-detail-list">
             <div className="metadata-title-heading-row">
               <div className="metadata-title-book-title"><strong>{metadataTitle}</strong></div>
-              <button type="button" className="metadata-check-fix-button" disabled={disabled || busy} onClick={() => void runAction(onFixAllTitles, '모든 title을 수정했습니다.')}>
+              <button type="button" className="metadata-check-fix-button" disabled={disabled || busy || titleOk} onClick={() => void runAction(onFixAllTitles, '모든 title을 수정했습니다.')}>
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 13.5-.7 3.2 3.2-.7L16 6.5 13.5 4 4 13.5Z" /><path d="m12.5 5 2.5 2.5" /></svg>수정
               </button>
             </div>

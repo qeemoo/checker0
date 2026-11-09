@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import JSZip from 'jszip';
 
 type PdfTextItem = { str: string; transform: number[] };
@@ -106,7 +106,7 @@ function compare(lines: { page: number; text: string }[], targets: Target[]): Ma
   });
 }
 
-export default function EpubCoverPdfCheck({ epubFile }: { epubFile: File }) {
+export default function EpubCoverPdfCheck({ epubFile, section }: { epubFile: File; section?: CoverSection }) {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [rows, setRows] = useState<MatchRow[] | null>(null);
   const [targets, setTargets] = useState<Target[]>([]);
@@ -116,6 +116,7 @@ export default function EpubCoverPdfCheck({ epubFile }: { epubFile: File }) {
   const [ignored, setIgnored] = useState<number[]>([]);
   const [assignments, setAssignments] = useState<Record<number, CoverSection | 'unassigned'>>({});
   const [selectedSection, setSelectedSection] = useState<CoverSection>('cover');
+  useEffect(() => { if (section) setSelectedSection(section); }, [section]);
   const sections: { id: CoverSection; label: string; file: string }[] = [
     { id: 'cover', label: '앞표지', file: 'cover.xhtml' },
     { id: 'introduce', label: '앞·뒤날개', file: 'introduce.xhtml' },
@@ -150,7 +151,7 @@ export default function EpubCoverPdfCheck({ epubFile }: { epubFile: File }) {
 
   return (
     <section className="epub-cover-pdf-check" style={{ border: '1px solid #d9e1e8', borderRadius: 12, padding: 20, marginTop: 24, background: '#fff' }}>
-      <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px' }}>표지 PDF · EPUB 텍스트 누락 검사</h3>
+      <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px' }}>{section === 'introduce' ? 'STEP · 소개 (앞·뒤날개)' : section === 'backcover' ? 'STEP · 뒤표지' : 'STEP · 커버'} PDF 대조</h3>
       <p style={{ color: '#526174', margin: '0 0 16px', lineHeight: 1.7 }}>
         PDF의 글자 순서가 일정하지 않으므로 추출된 문구를 앞표지·날개·뒤표지로 분류한 뒤 해당 XHTML과 각각 비교합니다.
         미분류 문구는 통과로 처리하지 않습니다. 이미지 안의 글자는 별도 확인이 필요합니다.
@@ -166,9 +167,9 @@ export default function EpubCoverPdfCheck({ epubFile }: { epubFile: File }) {
       {rows && (
         <div style={{ marginTop: 18 }}>
           <p style={{ fontSize: 13, color: '#64748b' }}>PDF에서 추출한 {rows.length}개 문구를 아래에서 분류하세요. 책등 문구는 앞표지로 분류하거나 검토 제외할 수 있습니다.</p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0' }}>
+          {!section && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0' }}>
             {sections.map((section) => <button key={section.id} type="button" onClick={() => setSelectedSection(section.id)} className={selectedSection === section.id ? 'btn-primary' : 'btn-secondary'}>{section.label} ({rows.filter((_, index) => assignments[index] === section.id).length})</button>)}
-          </div>
+          </div>}
           <p style={{ fontWeight: 650 }}>대상: {sections.find((section) => section.id === selectedSection)?.file} · 일치 {matched} · 누락 후보 {missing} · 부분 일치 {review}</p>
           {sectionTargets.length === 0 && <p role="alert" style={{ color: '#b91c1c' }}>해당 XHTML이 EPUB에 없습니다. 자동 통과로 처리하지 않습니다.</p>}
           <label style={{ display: 'flex', gap: 6, alignItems: 'center', margin: '12px 0' }}><input type="checkbox" checked={showMatched} onChange={(event) => setShowMatched(event.target.checked)} /> 일치 문구도 표시</label>

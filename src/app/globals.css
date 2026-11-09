@@ -2384,3 +2384,118 @@
 .toc-edit-modal-surface .toc-inline-edit-actions button:first-child { border-color:#315f9f; background:#315f9f; color:#fff; }
 .toc-edit-modal-surface .toc-inline-edit-actions .image-delete-button { border-color:#f0cdd1; background:#fff; color:#b33d49; }
 @media (max-width:640px) { .toc-edit-modal-surface { padding:16px; } }
+
+
+/* 2026 editorial workspace refresh
+   Quiet, paper-white SaaS styling. Keep error/success semantics and existing layouts. */
+:root {
+  --ink: #262b2c;
+  --muted: #737b7a;
+  --line: #e6e8e4;
+  --surface: #ffffff;
+  --canvas: #f8f9f7;
+  --accent: #465c57;
+  --accent-dark: #334843;
+  --success: #27805b;
+  --danger: #c34444;
+}
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: Pretendard, "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.app-shell { width: min(100% - 40px, 1040px); }
+.app-title { color: #242a29; font-weight: 750; letter-spacing: -.048em; }
+.app-eyebrow { color: #667773; letter-spacing: .11em; }
+.app-eyebrow::before { background: #9eada6; }
+.app-description { color: #747d79; }
+.panel {
+  border: 1px solid #e5e9e5;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 2px 14px rgba(29,42,37,.025);
+}
+.panel h2 { color: #29312e; font-weight: 750; }
+.panel h3 { color: #414c47; border-color: #eef0ed; }
+.panel details { border-color: #ecefeb; }
+.panel summary { color: #404b47; }
+.panel pre, .css-code-preview { background: #f8f9f7; border-color: #e7ebe7; color: #414a46; }
+.upload-dropzone {
+  border: 1.5px dashed #bfc9c1;
+  border-radius: 12px;
+  background: #fcfdfb;
+  box-shadow: none;
+}
+.upload-dropzone:hover, .upload-dropzone.is-dragging {
+  border-color: #738f7f;
+  background: #f5f8f5;
+  box-shadow: none;
+  transform: none;
+}
+.upload-icon { background: #edf2ed; border: 1px solid #e0e9e1; color: #496458; border-radius: 11px; }
+.upload-title { color: #313a35; }
+.upload-hint { color: #7d8981; }
+.btn-primary, .btn-secondary, .btn-soft { border-radius: 8px; font-weight: 650; box-shadow: none; }
+.btn-primary { background: #465c57; border-color: #465c57; box-shadow: none; }
+.btn-primary:hover { background: #334843; border-color: #334843; transform: none; }
+.btn-secondary { background: #fff; color: #4b5952; border-color: #dce2dd; }
+.btn-secondary:hover { background: #f7f9f7; border-color: #bdc9c0; }
+.btn-soft { background: #f1f5f1; border-color: #e0e8e0; color: #465c57; }
+.btn-soft:hover { background: #e9f0e9; }
+button:focus-visible, input:focus-visible, summary:focus-visible {
+  outline: 2px solid #9aafa4;
+  outline-offset: 2px;
+}
+input[type="text"], input:not([type]), .metadata-input {
+  border-color: #dfe5df;
+  background: #fff;
+  border-radius: 8px;
+}
+input[type="text"]:focus, input:not([type]):focus, .metadata-input:focus {
+  border-color: #809c8d;
+  box-shadow: 0 0 0 3px rgba(89,123,101,.10);
+}
+.workflow-sticky-header {
+  border-color: #e7ebe6;
+  background: rgba(255,255,255,.97);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 12px rgba(35,50,41,.035);
+}
+.workflow-brand { color: #29332e; }
+.workflow-progress-track { background: #e8ece7; }
+.workflow-progress-value { background: #60796b; }
+.workflow-step-link.is-current .workflow-step-dot { background: #465c57; border-color: #465c57; color: #fff; }
+.workflow-step-link.is-past .workflow-step-dot { background: #eaf0ea; border-color: #d7e2d8; color: #465c57; }
+.workflow-step-link.is-past.has-error .workflow-step-dot,
+.workflow-step-link.has-error .workflow-step-dot { background: #c34444; border-color: #c34444; color: #fff; }
+.workflow-step-link.has-error .workflow-step-name { color: #b83d3d; }
+.summary-tile, .css-preview-body { background: #fafbf9; border-color: #e9ece8; }
+.css-preview-card, .code-issue-card, .loi-result-card, .table-preview-card {
+  border-color: #e5e9e5;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.table-preview-header, .toc-confirm-item { background: #f8faf8; border-color: #e8ece8; }
+.table-code-toggle { border-color: #dbe4dd; color: #465c57; }
+.table-code-toggle:hover { background: #f2f6f2; }
+.toc-edit-modal-surface, .toc-confirm-modal, .confirm-modal, .loi-image-modal, .loi-caption-edit-modal {
+  border-color: #e2e8e2;
+  border-radius: 14px;
+  box-shadow: 0 22px 65px rgba(26,38,31,.14);
+}
+.toc-edit-modal-backdrop, .toc-confirm-backdrop, .confirm-modal-backdrop, .loi-image-modal-backdrop {
+  background: rgba(28,39,33,.44);
+  backdrop-filter: blur(4px);
+}
+.toc-edit-modal-surface .toc-compare-side { background: #f9faf8; border-color: #e5eae4; }
+.toc-edit-modal-surface .toc-inline-edit-actions button:first-child {
+  background: #465c57; border-color: #465c57;
+}
+.toc-edit-modal-surface .toc-compare-side input:focus {
+  border-color: #809c8d;
+  outline: 3px solid rgba(89,123,101,.1);
+}
+.loading-message { background: #f3f6f2; border-color: #dfe7df; color: #465c57; }
+.error-message { background: #fff7f6; border-color: #f1d6d3; color: #b43e3e; }
+.status-success { color: var(--success) !important; }
+.status-failure { color: var(--danger) !important; }

@@ -190,6 +190,8 @@ export default function EpubTocContentResults({
     const draft = drafts[issue.id] ?? { tocText: issue.toc?.text ?? '', contentText: issue.content?.text ?? '' };
     return !(draft.tocText.trim() && draft.contentText.trim() && normalize(draft.tocText) === normalize(draft.contentText));
   }).length + (selectedEditIssue && !visibleIssues.some((issue) => issue.id === selectedEditIssue.id) && (() => { const draft = drafts[selectedEditIssue.id] ?? { tocText: selectedEditIssue.toc?.text ?? '', contentText: selectedEditIssue.content?.text ?? '' }; return !(draft.tocText.trim() && draft.contentText.trim() && normalize(draft.tocText) === normalize(draft.contentText)); })() ? 1 : 0);
+  const pdfMismatchCount = pairedAllEntries.filter((pair) => !pair.excluded && pair.content && (pdfEvidence.get(pair.content.index)?.score ?? 1) < 1).length;
+  const totalMismatchCount = unmatchedCount + pdfMismatchCount;
   const exclusionsChanged = excludedTitles.length !== savedExcludedTitles.length || excludedTitles.some((title) => !savedExcludedTitles.some((saved) => normalize(saved) === normalize(title)));
   const hasPendingSave = exclusionsChanged || savableIssues.length > 0;
 
@@ -287,7 +289,7 @@ export default function EpubTocContentResults({
   }
 
   return <section className="panel check-page-panel">
-    <div className="check-page-heading-row"><h2 className="check-page-title">목차</h2><div className="check-page-heading-actions"><span className={`check-status ${unmatchedCount === 0 ? 'is-success' : 'is-failure'}`}>{unmatchedCount === 0 ? '통과' : `${unmatchedCount}건 불일치`}</span></div></div>
+    <div className="check-page-heading-row"><h2 className="check-page-title">목차</h2><div className="check-page-heading-actions"><span className={`check-status ${totalMismatchCount === 0 ? 'is-success' : 'is-failure'}`}>{totalMismatchCount === 0 ? '통과' : `${totalMismatchCount}건 불일치`}</span></div></div>
 
     <div className="toc-excluded-list">
       <div className="toc-excluded-heading"><strong>제외</strong>{hasPendingSave && <button type="button" className="compact-action" onClick={() => void saveAll()} disabled={disabled || saving}>{saving ? '저장 중…' : '저장'}</button>}</div>

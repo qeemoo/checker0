@@ -299,6 +299,9 @@ export default function EpubUploader() {
     }
 
     setLoading(true);
+    const spinnerStartedAt = Date.now();
+    // 먼저 로딩 상태를 렌더링하고, 최소한 잠깐은 진행 표시를 보여줍니다.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     setError('');
     setCssPreviewError('');
     setCleanedCssFiles([]);
@@ -347,6 +350,8 @@ export default function EpubUploader() {
       console.error('EPUB 분석 실패:', err);
       setError('EPUB 파일을 분석하거나 수정하지 못했습니다.');
     } finally {
+      const remaining = Math.max(0, 650 - (Date.now() - spinnerStartedAt));
+      if (remaining) await new Promise<void>((resolve) => setTimeout(resolve, remaining));
       setLoading(false);
     }
   }
@@ -836,7 +841,7 @@ export default function EpubUploader() {
               <div><strong>표지 PDF</strong><span>{uploadCoverPdf?.name ?? '미등록'}</span></div>
               {uploadBodyPdf && uploadCoverPdf && <button type="button" className="initial-upload-swap" onClick={() => { setUploadBodyPdf(uploadCoverPdf); setUploadCoverPdf(uploadBodyPdf); }}>본문 / 표지 바꾸기</button>}
             </div>}
-            <button type="button" className="btn-primary initial-upload-submit" disabled={!uploadEpub || !uploadBodyPdf || !uploadCoverPdf || loading} onClick={() => { if (uploadEpub && uploadBodyPdf && uploadCoverPdf) void handleFile(uploadEpub); }}>{loading ? '검사 중...' : '검사하기'}</button>
+            <button type="button" className="btn-primary initial-upload-submit" disabled={!uploadEpub || !uploadBodyPdf || !uploadCoverPdf || loading} onClick={() => { if (uploadEpub && uploadBodyPdf && uploadCoverPdf) void handleFile(uploadEpub); }}>{loading ? <><span className="initial-upload-spinner" aria-hidden="true" /> 검사 중...</> : '검사하기'}</button>
             {error && <p className="status-failure" role="alert">{error}</p>}
           </section>
         </>

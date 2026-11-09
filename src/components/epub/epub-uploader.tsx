@@ -97,7 +97,6 @@ export default function EpubUploader() {
     creator: '',
   });
   const [loading, setLoading] = useState(false);
-  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [accessibilityModified, setAccessibilityModified] = useState(false);
@@ -322,12 +321,6 @@ export default function EpubUploader() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function handleInputChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) void handleFile(file);
-    event.target.value = '';
   }
 
   async function updateMetadata(updatedMetadata: EpubMetadata) {
@@ -792,7 +785,6 @@ export default function EpubUploader() {
     setFixingTocId(null);
     codeFixLockRef.current = false;
     tocFixLockRef.current = false;
-    setDragging(false);
     setError('');
   }
 

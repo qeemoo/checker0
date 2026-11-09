@@ -186,7 +186,9 @@ export default function EpubMetadataCheck({
   const [busy, setBusy] = useState(false);
   const [rightsChecks, setRightsChecks] = useState<{ label: string; expected: string; actual: string; ok: boolean; pdf?: string; pdfPage?: number; note?: string }[] | null>(null);
   const [rightsError, setRightsError] = useState('');
-  const norm = (value: string) => value.normalize('NFKC').replace(/\s+/g, '').trim();
+  const norm = (value: string) => value.normalize('NFKC').replace(/\s+/g, '').replace(/[ⓒⒸ©]/g, '©').trim();
+  const containsName = (actual: string, expected: string) => Boolean(expected && norm(actual).includes(norm(expected)));
+  const normalizePdf = (value: string) => norm(value).replace(/[|｜]/g, '').replace(/읽기\s*쉬운\s*책/g, '읽기쉬운책');
   const reference = BOOK_REFERENCES.find((book) => norm(book.title) === norm(metadataTitle));
   useEffect(() => {
     let active = true;
@@ -213,11 +215,12 @@ export default function EpubMetadataCheck({
         const permissionText = permission?.textContent?.trim() ?? '';
         const fieldText = paragraphs.map((p) => p.textContent ?? '').find((text) => /읽기\s*쉬운\s*책|읽기쉬운책/.test(text)) ?? '';
         const field = fieldText.match(/읽기\s*쉬운\s*책\s*([^\n\r]+)/)?.[1]?.trim() ?? '';
+        const fieldPrefix = (fieldText.match(/읽기\s*쉬운\s*책\s*([^|｜\n\r]*?)(?=\s*[|｜]|\s+발행일|\s+\S+\s+발행일|$)/)?.[1] ?? field).trim();
         const expectedAuthor = metadataCreator.trim();
         const publisher = reference?.publisher ?? '';
         const creatorNames = expectedAuthor.split(/[,，、;；/]+/).map((name) => norm(name)).filter(Boolean);
         const epubNames = creditedAuthors.map((item) => norm(item.name)).filter(Boolean);
-        const creatorMatches = creatorNames.length > 0 && creatorNames.every((name) => epubNames.includes(name)) && epubNames.every((name) => creatorNames.includes(name));
+        const creatorMatches = creatorNames.length > 0 && creatorNames.every((name) => epubNames.some((epub) => epub.includes(name))) && epubNames.every((name) => creatorNames.some((creator) => name.includes(creator)));
         const pdfRows = bodyPdf ? await extractCoverPdf(bodyPdf) : [];
         const pdfPages = [...new Set(pdfRows.map((row) => row.page))].map((page) => ({
           page,
@@ -226,14 +229,14 @@ export default function EpubMetadataCheck({
         // 본문 PDF의 판권지는 통상 3쪽이지만, 고정하지 않고 해당 표제가 있는 페이지를 찾습니다.
         const rightsPage = pdfPages.find((page) => /읽기\s*쉬운\s*책|읽기쉬운책/.test(page.text)) ??
           pdfPages.find((page) => /동의를\s*받아\s*만들었습니다/.test(page.text));
-        const pdfNorm = norm(rightsPage?.text ?? '').replace(/[ⓒⒸ©]/g, '©');
-        const matchesPdf = (value: string) => Boolean(value && rightsPage && pdfNorm.includes(norm(value).replace(/[ⓒⒸ©]/g, '©')));
+        const pdfNorm = normalizePdf(rightsPage?.text ?? '');
+        const matchesPdf = (value: string) => Boolean(value && rightsPage && pdfNorm.includes(normalizePdf(value)));
         const permissionPublisher = permissionText.match(/도서출판\s*([^(（\s]+)/)?.[1] ?? '';
         const permissionAuthor = permissionText.match(/글\s*[ⓒⒸ©]\s*([^)）\s]+)/)?.[1] ?? '';
         const checks: { label: string; expected: string; actual: string; ok: boolean; pdf?: string; pdfPage?: number; note?: string }[] = [];
         const add = (label: string, expected: string, actual: string, ok: boolean, pdfNeedle = actual) => {
           const mismatch = !ok;
-          const pdfMatch = mismatch && matchesPdf(pdfNeedle);
+          const pdfMatch = mismatch && Boolean(actual) && matchesPdf(pdfNeedle);
           checks.push({
             label, expected, actual, ok: ok || pdfMatch,
             pdf: mismatch ? (rightsPage?.text ?? '') : undefined,
@@ -243,31 +246,32 @@ export default function EpubMetadataCheck({
               pdfMatch ? '메타데이터와 다르지만 PDF 판권지와 일치 (확인 필요)' : 'PDF 판권지에서도 일치 확인 불가' : undefined,
           });
         };
-        add('소개 · author-name', expectedAuthor, authorName, Boolean(expectedAuthor && norm(authorName) === norm(expectedAuthor)), authorName);
+        add('소개 · author-name', expectedAuthor, authorName, containsName(authorName, expectedAuthor), authorName);
         add('판권 · 지은이 / 옮긴이', expectedAuthor, creditedAuthors.map((item) => item.role + ' ' + item.name).join(' / '), creatorMatches,
           creditedAuthors.map((item) => item.role + item.name).join(''));
-        add('판권 · 글 © 작가명', '글 ©' + expectedAuthor, permissionAuthor, Boolean(permissionAuthor && creatorNames.includes(norm(permissionAuthor))), '글 ©' + permissionAuthor);
+        add('판권 · 글 © 작가명', '글 ©' + expectedAuthor, permissionAuthor, Boolean(permissionAuthor && creatorNames.some((name) => norm(permissionAuthor).includes(name))), '글 ©' + permissionAuthor);
         add('판권 · 도서출판 출판사명', publisher ? '도서출판 ' + publisher : '등록 출판사 정보 없음', permissionPublisher,
-          Boolean(publisher && norm(permissionPublisher) === norm(publisher)), '도서출판 ' + permissionPublisher);
-        const pdfFieldMatch = Boolean(field && matchesPdf('읽기쉬운책' + field));
+          containsName(permissionPublisher, publisher), '도서출판 ' + permissionPublisher);
+        const fieldNeedle = '읽기쉬운책' + fieldPrefix;
+        const pdfFieldMatch = Boolean(fieldPrefix && matchesPdf(fieldNeedle));
         checks.push({
-          label: '판권 · 읽기쉬운책 분야', expected: 'PDF 판권지의 읽기쉬운책 분야', actual: fieldText || '(표기 없음)',
-          ok: Boolean(field && (!bodyPdf || pdfFieldMatch)),
+          label: '분야 · 읽기쉬운책', expected: 'PDF 판권지의 읽기쉬운책 분야', actual: fieldPrefix ? '읽기쉬운책 ' + fieldPrefix : '(표기 없음)',
+          ok: pdfFieldMatch,
           pdf: bodyPdf ? rightsPage?.text : undefined, pdfPage: rightsPage?.page,
-          note: !field ? 'EPUB에서 분야를 찾지 못함' : !bodyPdf ? 'EPUB 분야 표기 확인 · 본문 PDF 미첨부' :
-            pdfFieldMatch ? 'PDF 판권지 분야와 일치' : 'PDF 판권지 분야와 불일치 또는 확인 불가',
+          note: !fieldPrefix ? 'EPUB에서 분야를 찾지 못함' : !bodyPdf ? '본문 PDF가 없어 분야 확인 불가' :
+            pdfFieldMatch ? 'PDF의 분야 표기와 일치' : 'PDF의 분야 표기와 불일치 또는 확인 불가',
         });
-        // 문장 전체를 PDF와 대조해 출판사, 저작권자, 동의 문구의 누락을 탐지합니다.
+        // 출판 동의 문구는 기호 및 공백 차이를 무시하고, 메타데이터가 달라도 PDF 판권과 일치하면 인정합니다.
         if (permissionText) {
           const pdfPermission = matchesPdf(permissionText);
           checks.push({
-            label: '판권 · 출판 동의 문구 전체', expected: '본문 PDF 판권지와 동일', actual: permissionText,
+            label: '저작권 · 출판 동의 문구', expected: '본문 PDF 판권지와 동일', actual: permissionText,
             ok: !bodyPdf || pdfPermission,
             pdf: bodyPdf ? rightsPage?.text : undefined, pdfPage: rightsPage?.page,
             note: !bodyPdf ? '본문 PDF 미첨부 · EPUB 문구만 확인' : pdfPermission ? 'PDF와 일치' : 'PDF와 불일치 또는 확인 불가',
           });
         } else {
-          checks.push({ label: '판권 · 출판 동의 문구 전체', expected: '출판 동의 문구', actual: '', ok: false, note: 'EPUB 판권에 문구 없음' });
+          checks.push({ label: '저작권 · 출판 동의 문구', expected: '출판 동의 문구', actual: '', ok: false, note: 'EPUB 판권에 문구 없음' });
         }
         if (active) { setRightsChecks(checks); setRightsError(''); }
       } catch (error) {
@@ -300,8 +304,8 @@ export default function EpubMetadataCheck({
   const conformValue = checks.conformsToValue ?? 'dcterms:conformsTo 태그 없음';
   const titleOk = checks.titleXhtml.unmatched === 0;
   const coverOk = isMetadataTextPassed(checks.coverTitle) && isMetadataTextPassed(checks.coverCreator);
-  const copyrightOk = isMetadataTextPassed(checks.copyrightTitle) && isMetadataTextPassed(checks.copyrightCreator);
-  const introduceOk = isMetadataTextPassed(checks.introduceCreator);
+  const copyrightOk = isMetadataTextPassed(checks.copyrightTitle) && (rightsChecks ? rightsChecks.filter((item) => item.label.startsWith('판권 ·') || item.label.startsWith('저작권 ·')).every((item) => item.ok) : isMetadataTextPassed(checks.copyrightCreator));
+  const introduceOk = rightsChecks ? rightsChecks.filter((item) => item.label.startsWith('소개 ·')).every((item) => item.ok) : isMetadataTextPassed(checks.introduceCreator);
   const coverItems = mergeCoverDetails(checks.coverTitle, checks.coverCreator, metadataTitle, metadataCreator);
 
   function toggle(key: NonNullable<typeof expanded>) {
@@ -315,7 +319,7 @@ export default function EpubMetadataCheck({
       <div className="metadata-check-group">
         <h3 className="metadata-check-group-title">접근성 적합성</h3>
         <div className="metadata-check-item">
-          <button type="button" className={`metadata-check-trigger ${expanded === 'accessibility' ? 'is-open' : ''}`} onClick={() => toggle('accessibility')} aria-expanded={expanded === 'accessibility'}>
+          <button type="button" className={`metadata-check-trigger ${expanded === 'accessibility' ? 'is-open' : ''}`} onClick={() => { if (!checks.conformsTo) toggle('accessibility'); }} aria-expanded={expanded === 'accessibility'} disabled={checks.conformsTo}>
             <span className="metadata-check-bullet" />
             <span className="metadata-check-label">WCAG 2.2 AA 적합성</span>
             <CheckStatus ok={checks.conformsTo} modified={accessibilityModified} />
@@ -380,7 +384,7 @@ export default function EpubMetadataCheck({
       </div>
 
       <div className="metadata-check-group">
-        <h3 className="metadata-check-group-title">작가 · 출판사 교차 검사</h3>
+        <h3 className="metadata-check-group-title">PDF 추가 검증 · 작가 / 출판사 / 분야</h3>
         <p className="metadata-check-help">소개와 판권의 작가명, 판권의 출판사명을 도서 기본 정보 및 등록 도서 목록과 대조합니다.</p>
         {rightsError && <p className="status-failure">{rightsError}</p>}
         {!rightsChecks && !rightsError && <p className="metadata-check-help">검사 중...</p>}

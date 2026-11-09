@@ -978,6 +978,7 @@ export default function EpubUploader() {
               issues={analysis.checks.tocContent.issues}
               tocEntries={analysis.checks.tocContent.tocEntries}
               contentEntries={analysis.checks.tocContent.contentEntries}
+              bodyPdf={uploadBodyPdf}
               error={analysis.checks.tocContent.error}
               onSave={handleSaveTocEdits}
               onDelete={handleDeleteTocIssue}

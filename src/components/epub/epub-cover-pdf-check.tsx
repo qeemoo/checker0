@@ -8,6 +8,7 @@ type PdfPage = { getTextContent: () => Promise<{ items: PdfTextItem[] }> };
 type PdfDocument = { numPages: number; getPage: (page: number) => Promise<PdfPage>; destroy: () => Promise<void> };
 type PdfJs = { GlobalWorkerOptions: { workerSrc: string }; getDocument: (input: { data: Uint8Array }) => { promise: Promise<PdfDocument> } };
 
+type CoverSection = 'cover' | 'introduce' | 'backcover';
 type MatchRow = { text: string; matched: boolean; possible: boolean; page: number };
 type Target = { file: string; text: string };
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
@@ -113,6 +114,13 @@ export default function EpubCoverPdfCheck({ epubFile }: { epubFile: File }) {
   const [error, setError] = useState('');
   const [showMatched, setShowMatched] = useState(false);
   const [ignored, setIgnored] = useState<number[]>([]);
+  const [assignments, setAssignments] = useState<Record<number, CoverSection | 'unassigned'>>({});
+  const [selectedSection, setSelectedSection] = useState<CoverSection>('cover');
+  const sections: { id: CoverSection; label: string; file: string }[] = [
+    { id: 'cover', label: '앞표지', file: 'cover.xhtml' },
+    { id: 'introduce', label: '앞·뒤날개', file: 'introduce.xhtml' },
+    { id: 'backcover', label: '뒤표지', file: 'backcover.xhtml' },
+  ];
 
   async function runCheck() {
     if (!pdfFile) return;
@@ -120,6 +128,7 @@ export default function EpubCoverPdfCheck({ epubFile }: { epubFile: File }) {
     setError('');
     setRows(null);
     setIgnored([]);
+    setAssignments({});
     try {
       const [lines, epubTargets] = await Promise.all([extractCoverPdf(pdfFile), extractEpubCover(epubFile)]);
       if (!lines.length) throw new Error('PDF에서 선택 가능한 텍스트를 추출하지 못했습니다. 이미지 PDF는 OCR이 필요합니다.');
@@ -132,16 +141,19 @@ export default function EpubCoverPdfCheck({ epubFile }: { epubFile: File }) {
     }
   }
 
-  const missing = rows?.filter((row, index) => !row.matched && !row.possible && !ignored.includes(index)).length ?? 0;
-  const review = rows?.filter((row, index) => !row.matched && row.possible && !ignored.includes(index)).length ?? 0;
-  const matched = rows?.filter((row) => row.matched).length ?? 0;
+  const sectionTargets = targets.filter((target) => target.file.toLowerCase() === sections.find((section) => section.id === selectedSection)?.file);
+  const sectionRows = rows?.map((row, index) => ({ ...row, index, assigned: assignments[index] ?? 'unassigned' })).filter((row) => row.assigned === selectedSection) ?? [];
+  const checkedRows = compare(sectionRows, sectionTargets);
+  const missing = checkedRows.filter((row, index) => !row.matched && !row.possible && !ignored.includes(sectionRows[index].index)).length;
+  const review = checkedRows.filter((row, index) => !row.matched && row.possible && !ignored.includes(sectionRows[index].index)).length;
+  const matched = checkedRows.filter((row) => row.matched).length;
 
   return (
     <section className="epub-cover-pdf-check" style={{ border: '1px solid #d9e1e8', borderRadius: 12, padding: 20, marginTop: 24, background: '#fff' }}>
       <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px' }}>표지 PDF · EPUB 텍스트 누락 검사</h3>
       <p style={{ color: '#526174', margin: '0 0 16px', lineHeight: 1.7 }}>
-        표지 PDF의 텍스트를 cover / introduce / backcover / incover XHTML 본문 및 이미지 대체 텍스트와 대조합니다.
-        글자 순서는 비교하지 않습니다. 일치하지 않는 줄은 누락 후보로 표시하며, 자동 수정하지 않습니다.
+        PDF의 글자 순서가 일정하지 않으므로 추출된 문구를 앞표지·날개·뒤표지로 분류한 뒤 해당 XHTML과 각각 비교합니다.
+        미분류 문구는 통과로 처리하지 않습니다. 이미지 안의 글자는 별도 확인이 필요합니다.
       </p>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -153,29 +165,42 @@ export default function EpubCoverPdfCheck({ epubFile }: { epubFile: File }) {
       {error && <p role="alert" style={{ color: '#b91c1c', marginTop: 12 }}>{error}</p>}
       {rows && (
         <div style={{ marginTop: 18 }}>
-          <p style={{ fontWeight: 600, marginBottom: 8 }}>PDF {rows.length}줄 분석 · 일치 {matched}줄 · 누락 후보 {missing}줄 · 부분 일치 {review}줄</p>
-          <p style={{ color: '#64748b', fontSize: 13, marginBottom: 10 }}>검사 대상: {targets.map((target) => target.file).join(', ')}</p>
-          <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 12 }}>
-            <input type="checkbox" checked={showMatched} onChange={(event) => setShowMatched(event.target.checked)} /> 일치한 문구도 보기
-          </label>
-          <div style={{ display: 'grid', gap: 8 }}>
-            {rows.map((row, index) => {
-              if (row.matched && !showMatched) return null;
-              return (
-                <div key={index} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px', background: ignored.includes(index) ? '#f8fafc' : '#fff' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
-                    <strong style={{ color: row.matched ? '#15803d' : row.possible ? '#a16207' : '#b91c1c', fontSize: 13 }}>
-                      {row.matched ? '일치' : ignored.includes(index) ? '검토 제외' : row.possible ? '부분 일치 · 확인 필요' : '누락 후보'}
-                    </strong>
-                    <span style={{ color: '#64748b', fontSize: 12 }}>PDF {row.page}페이지</span>
-                    {!row.matched && <button type="button" onClick={() => setIgnored((previous) => previous.includes(index) ? previous.filter((value) => value !== index) : [...previous, index])} style={{ marginLeft: 'auto', border: '1px solid #cbd5e1', borderRadius: 6, padding: '3px 8px', background: '#fff', cursor: 'pointer' }}>{ignored.includes(index) ? '검토 복원' : '의도적 생략'}</button>}
-                  </div>
-                  <div style={{ overflowWrap: 'anywhere', lineHeight: 1.6 }}>{row.text}</div>
+          <p style={{ fontSize: 13, color: '#64748b' }}>PDF에서 추출한 {rows.length}개 문구를 아래에서 분류하세요. 책등 문구는 앞표지로 분류하거나 검토 제외할 수 있습니다.</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0' }}>
+            {sections.map((section) => <button key={section.id} type="button" onClick={() => setSelectedSection(section.id)} className={selectedSection === section.id ? 'btn-primary' : 'btn-secondary'}>{section.label} ({rows.filter((_, index) => assignments[index] === section.id).length})</button>)}
+          </div>
+          <p style={{ fontWeight: 650 }}>대상: {sections.find((section) => section.id === selectedSection)?.file} · 일치 {matched} · 누락 후보 {missing} · 부분 일치 {review}</p>
+          {sectionTargets.length === 0 && <p role="alert" style={{ color: '#b91c1c' }}>해당 XHTML이 EPUB에 없습니다. 자동 통과로 처리하지 않습니다.</p>}
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', margin: '12px 0' }}><input type="checkbox" checked={showMatched} onChange={(event) => setShowMatched(event.target.checked)} /> 일치 문구도 표시</label>
+          <details open>
+            <summary style={{ cursor: 'pointer', fontWeight: 650, padding: '10px 0' }}>PDF 문구 분류 · 미분류 {rows.filter((_, index) => !assignments[index] || assignments[index] === 'unassigned').length}건</summary>
+            <div style={{ maxHeight: 330, overflowY: 'auto', display: 'grid', gap: 8 }}>
+              {rows.map((row, index) => (
+                <div key={index} style={{ display: 'flex', gap: 8, alignItems: 'center', borderBottom: '1px solid #e5e9e5', padding: '8px 0' }}>
+                  <select aria-label={`PDF 문구 ${index + 1} 분류`} value={assignments[index] ?? 'unassigned'} onChange={(event) => setAssignments((previous) => ({ ...previous, [index]: event.target.value as CoverSection | 'unassigned' }))} style={{ minWidth: 115, padding: 6, border: '1px solid #dce3dc', borderRadius: 6 }}>
+                    <option value="unassigned">미분류</option>
+                    {sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}
+                  </select>
+                  <span style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{row.text}</span>
                 </div>
-              );
+              ))}
+            </div>
+          </details>
+          <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
+            {sectionRows.map((row, localIndex) => {
+              const result = checkedRows[localIndex];
+              if (result.matched && !showMatched) return null;
+              return <div key={row.index} style={{ padding: 12, border: '1px solid #e5e9e5', borderRadius: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <strong style={{ color: result.matched ? '#27805b' : result.possible ? '#a16207' : '#c34444' }}>{result.matched ? '일치' : ignored.includes(row.index) ? '검토 제외' : result.possible ? '부분 일치' : '누락 후보'}</strong>
+                  <span style={{ fontSize: 12, color: '#64748b' }}>PDF {row.page}페이지</span>
+                  {!result.matched && <button type="button" className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => setIgnored((previous) => previous.includes(row.index) ? previous.filter((value) => value !== row.index) : [...previous, row.index])}>{ignored.includes(row.index) ? '검토 복원' : '의도적 생략'}</button>}
+                </div>
+                <p style={{ margin: '8px 0 0', overflowWrap: 'anywhere' }}>{row.text}</p>
+              </div>;
             })}
           </div>
-          <p style={{ marginTop: 14, color: '#64748b', fontSize: 13 }}>PDF의 글자 분할·줄바꿈, 책등·날개 구성, 이미지 안에만 존재하는 글자 때문에 오탐이 있을 수 있습니다. 누락 후보를 검토한 후 원본 XHTML을 확인하세요.</p>
+          <p style={{ fontSize: 12, color: '#64748b', marginTop: 14 }}>현재는 누락 후보를 검토하는 기능입니다. EPUB 원문 수정은 기존 메타데이터 편집 등 해당 수정 기능에서 진행해 주세요. 분류·검토 제외 설정은 페이지 새로고침 시 초기화됩니다.</p>
         </div>
       )}
     </section>

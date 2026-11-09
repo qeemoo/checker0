@@ -2499,3 +2499,15 @@ input[type="text"]:focus, input:not([type]):focus, .metadata-input:focus {
 .error-message { background: #fff7f6; border-color: #f1d6d3; color: #b43e3e; }
 .status-success { color: var(--success) !important; }
 .status-failure { color: var(--danger) !important; }
+
+/* Reference metadata comparison */
+.metadata-reference-check { margin-top: 24px; padding-top: 22px; border-top: 1px solid #e8ece7; }
+.metadata-reference-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+.metadata-reference-heading h3 { margin:0 0 6px; padding:0; border:0; font-size:15px; color:#313c35; }
+.metadata-reference-heading p { margin:0; color:#747e76; font-size:12px; line-height:1.6; }
+.metadata-reference-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:15px; }
+.metadata-reference-fields label { font-size:13px; font-weight:600; color:#45524a; }
+.metadata-reference-pending { margin:12px 0 0; font-size:13px; color:#7d8580; }
+.metadata-reference-results { margin-top:14px; padding:10px 14px; background:#fafbf9; border:1px solid #e7ece6; border-radius:9px; }
+.metadata-reference-results p { margin:5px 0; font-size:13px; }
+@media(max-width:640px){.metadata-reference-fields{grid-template-columns:1fr}}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { TocContentEntry, TocContentIssue } from '../../types/epub';
 import { displayEpubPath } from '../../lib/epub/epub-utils';
+import { extractCoverPdf } from './epub-cover-pdf-check';
 
 interface Props {
   issues: TocContentIssue[];
@@ -14,6 +15,7 @@ interface Props {
   onSaveExcludedTitles?: (titles: string[]) => void;
   excludedTitles?: string[];
   disabled: boolean;
+  bodyPdf?: File | null;
   onDraftChange?: (edits: { issueId: string; tocText: string; contentText: string }[], changed: boolean) => void;
 }
 
@@ -22,6 +24,20 @@ type AlignedPair = { toc?: TocContentEntry; content?: TocContentEntry; excluded?
 const DEFAULT_EXCLUDED = ['2026 읽기쉬운책 160권을 소개합니다', '판권지', '글의 순서'];
 const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 const alignText = (value: string) => normalize(value).replace(/^[•●○◦▪▫■□◆◇‣⁃∙·]+\s*/u, '');
+type PdfTocEvidence = { expected: string; page: number; score: number };
+const pdfText = (value: string) => value.normalize('NFKC').replace(/^[\\s•●○◦▪▫■□◆◇‣⁃∙·]+/u, '').replace(/[.·…\\s\\d]+$/u, '').replace(/\\s+/g, '').replace(/[|｜]/g, '');
+function similarity(left: string, right: string) {
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  const previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= right.length; j++) next[j] = Math.min(next[j - 1] + 1, previous[j] + 1, previous[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1));
+    for (let j = 0; j < next.length; j++) previous[j] = next[j];
+  }
+  return 1 - previous[right.length] / Math.max(left.length, right.length);
+}
+
 
 function alignAllEntries(tocEntries: TocContentEntry[], contentEntries: TocContentEntry[], excludedTitles: string[]): AlignedPair[] {
   const excluded = (entry?: TocContentEntry) => Boolean(entry && excludedTitles.some((title) => normalize(title) === normalize(entry.text)));
@@ -94,7 +110,7 @@ function createIssue(pair: AlignedPair, issues: TocContentIssue[]): TocContentIs
 }
 
 export default function EpubTocContentResults({
-  issues, tocEntries, contentEntries, error, onSave, onDelete, onSaveExcludedTitles, excludedTitles: savedExcludedTitles = DEFAULT_EXCLUDED, disabled, onDraftChange,
+  issues, tocEntries, contentEntries, error, onSave, onDelete, onSaveExcludedTitles, excludedTitles: savedExcludedTitles = DEFAULT_EXCLUDED, disabled, onDraftChange, bodyPdf,
 }: Props) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [excludedTitles, setExcludedTitles] = useState<string[]>(savedExcludedTitles);
@@ -102,6 +118,43 @@ export default function EpubTocContentResults({
   const [selectedEditIssue, setSelectedEditIssue] = useState<TocContentIssue | null>(null);
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<TocContentIssue | null>(null);
+  const [pdfTocLines, setPdfTocLines] = useState<{ text: string; page: number }[]>([]);
+  const [pdfTocState, setPdfTocState] = useState<'idle' | 'loading' | 'ready' | 'missing' | 'error'>('idle');
+  useEffect(() => {
+    if (!bodyPdf) { setPdfTocLines([]); setPdfTocState('idle'); return; }
+    let active = true;
+    setPdfTocState('loading');
+    extractCoverPdf(bodyPdf).then((lines) => {
+      if (!active) return;
+      const heading = lines.find((line) => /글\\s*의\\s*순\\s*서/.test(line.text));
+      if (!heading) { setPdfTocLines([]); setPdfTocState('missing'); return; }
+      const pageLines = lines.filter((line) => line.page === heading.page);
+      const index = pageLines.findIndex((line) => line === heading);
+      const candidates = pageLines.slice(index + 1).filter((line) => {
+        const value = pdfText(line.text);
+        return value.length >= 2 && !/^\\d+$/.test(value) && !/^(글의순서|목차)$/.test(value);
+      });
+      setPdfTocLines(candidates.map(({text,page}) => ({text,page})));
+      setPdfTocState('ready');
+    }).catch(() => { if (active) { setPdfTocLines([]); setPdfTocState('error'); } });
+    return () => { active = false; };
+  }, [bodyPdf]);
+  const pdfEvidence = useMemo(() => {
+    const map = new Map<number, PdfTocEvidence>();
+    if (pdfTocState !== 'ready') return map;
+    for (const entry of contentEntries) {
+      const content = pdfText(entry.text);
+      if (content.length < 2) continue;
+      const scored = pdfTocLines.map((line) => {
+        const candidate = pdfText(line.text);
+        return {expected:line.text,page:line.page,score: similarity(content,candidate)};
+      }).sort((a,b) => b.score - a.score);
+      const best = scored[0];
+      if (best && best.score >= 0.55) map.set(entry.index,best);
+    }
+    return map;
+  }, [contentEntries,pdfTocLines,pdfTocState]);
+
 
   useEffect(() => setExcludedTitles(savedExcludedTitles), [savedExcludedTitles]);
   useEffect(() => {
@@ -221,11 +274,14 @@ export default function EpubTocContentResults({
   function renderIssue(issue: TocContentIssue) {
     const draft = drafts[issue.id] ?? { tocText: issue.toc?.text ?? '', contentText: issue.content?.text ?? '' };
     const equal = Boolean(draft.tocText.trim() && draft.contentText.trim() && normalize(draft.tocText) === normalize(draft.contentText));
+    const evidence = issue.content ? pdfEvidence.get(issue.content.index) : undefined;
+    const pdfMismatch = evidence && evidence.score < 1;
     return <article key={issue.id} className="toc-inline-edit-card">
       <div className="toc-compare-columns">
         <label className="toc-compare-side"><span>TOC</span><input aria-label="TOC 텍스트" value={draft.tocText} onChange={(event) => update(issue.id, 'tocText', event.target.value)} placeholder="목차 텍스트" disabled={disabled} /></label>
         <label className="toc-compare-side"><span>CONTENT</span><input aria-label="CONTENT 텍스트" value={draft.contentText} onChange={(event) => update(issue.id, 'contentText', event.target.value)} placeholder="본문 텍스트" disabled={disabled} /></label>
       </div>
+      {pdfMismatch && <div className="toc-pdf-difference"><strong>PDF 글의 순서 · {evidence.page}페이지와 불일치</strong><p><b>PDF:</b> {evidence.expected}</p><p><b>CONTENT:</b> {issue.content?.text}</p><p>위 두 문구를 비교하여 오탈자를 확인하고 CONTENT를 수정하세요.</p></div>}
       <div className="toc-inline-edit-actions"><button type="button" className="compact-action" onClick={() => void saveSelected(issue)} disabled={disabled || saving || !equal}>{saving ? '저장 중…' : '저장'}</button><button type="button" className="compact-action image-delete-button" onClick={() => void deleteSelected(issue)} disabled={disabled || saving}>삭제</button></div>
     </article>;
   }
@@ -239,6 +295,9 @@ export default function EpubTocContentResults({
       <div className="toc-excluded-add-row"><label htmlFor="toc-excluded-title">제외</label><form className="toc-excluded-add" onSubmit={(event) => { event.preventDefault(); addExcludedTitle(); }}><input id="toc-excluded-title" value={newExcludedTitle} onChange={(event) => setNewExcludedTitle(event.target.value)} placeholder="목차 제목 입력" disabled={disabled} /><button type="submit" className="compact-action" disabled={disabled || !newExcludedTitle.trim()}>추가</button></form></div>
     </div>
 
+    {pdfTocState === "loading" && <p className="metadata-check-help">PDF 글의 순서 대조 중...</p>}
+    {pdfTocState === "missing" && <p className="metadata-check-help">본문 PDF에서 글의 순서 페이지를 찾지 못해 PDF 오탈자 검사를 생략했습니다.</p>}
+    {pdfTocState === "error" && <p className="status-failure">PDF 목차 분석에 실패했습니다.</p>}
     <section className="toc-full-comparison is-always-open">
       <h3 className="toc-full-comparison-title">전체 목차</h3>
       <div className="toc-full-comparison-list">
@@ -247,11 +306,13 @@ export default function EpubTocContentResults({
           const issue = createIssue(pair, issues);
           const selected = selectedEditIssue?.id === issue.id;
           const equal = Boolean(pair.toc && pair.content && normalize(pair.toc.text) === normalize(pair.content.text));
-          const mismatch = !pair.excluded && !equal;
+          const pdfResult = pair.content ? pdfEvidence.get(pair.content.index) : undefined;
+          const pdfMismatch = !pair.excluded && Boolean(pdfResult && pdfResult.score < 1);
+          const mismatch = !pair.excluded && (!equal || pdfMismatch);
           return <div key={issue.id} className="toc-full-entry-wrap">
             <article className={`toc-full-comparison-row ${mismatch ? 'is-unmatched' : 'is-matched'} ${pair.excluded ? 'is-excluded' : ''}`}>
               <div className="toc-full-cell">{pair.toc && <span>{pair.toc.text}</span>}</div>
-              <div className="toc-full-cell">{pair.content && <span>{pair.content.text}</span>}</div>
+              <div className="toc-full-cell">{pair.content && <span>{pair.content.text}</span>}{pdfMismatch && <strong className="toc-pdf-mismatch" title="PDF 글의 순서와 불일치" aria-label="PDF 글의 순서와 불일치">X</strong>}</div>
               <button type="button" className="toc-full-edit-button" disabled={disabled || pair.excluded} onClick={() => { if (selected) setSelectedEditIssue(null); else { setSelectedEditIssue(issue); setDrafts((current) => ({ ...current, [issue.id]: current[issue.id] ?? { tocText: issue.toc?.text ?? '', contentText: issue.content?.text ?? '' } })); } }}>{pair.excluded ? '제외' : selected ? '닫기' : '수정'}</button>
             </article>
             {selected && <div className="toc-edit-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedEditIssue(null); }}>

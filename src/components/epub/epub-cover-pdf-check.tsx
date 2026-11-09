@@ -70,7 +70,7 @@ async function extractCoverPdf(file: File): Promise<{ page: number; text: string
       }
       for (const group of groups) {
         const line = group.items.sort((a, b) => a.x - b.x).map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim();
-        if (compact(line).length >= 5) lines.push({ page: pageNumber, text: line });
+        if (compact(line).length >= 1) lines.push({ page: pageNumber, text: line });
       }
     }
   } finally {
@@ -96,7 +96,7 @@ async function extractEpubCover(file: File): Promise<Target[]> {
       while ((node = walker.nextNode())) {
         const parent = node.parentElement;
         if (!parent || parent.closest('script,style,svg')) continue;
-        const text = node.textContent?.replace(/\\s+/g, ' ').trim() ?? '';
+        const text = node.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         if (compact(text)) phrases.push({ text, source: '본문' });
       }
       for (const img of Array.from(body.querySelectorAll('img[alt]'))) {
@@ -109,12 +109,38 @@ async function extractEpubCover(file: File): Promise<Target[]> {
   return targets;
 }
 
+function words(value: string): string[] {
+  return value.normalize('NFKC').split(/[\s|｜·•,，、/()[\]{}]+/u).map(compact).filter(Boolean);
+}
+
+function editDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      next[j] = Math.min(next[j - 1] + 1, previous[j] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = next;
+  }
+  return previous[b.length];
+}
+
 function evaluate(lines: MatchRow[], target?: Target) {
-  const pdfText = lines.map((line) => compact(line.text)).join('');
-  return (target?.phrases ?? []).map((phrase) => ({
-    ...phrase,
-    matched: pdfText.includes(compact(phrase.text)),
-  }));
+  const pdfLines = lines.map((line) => compact(line.text));
+  const pdfText = pdfLines.join('');
+  const pdfWords = lines.flatMap((line) => words(line.text));
+  return (target?.phrases ?? []).flatMap((phrase) => {
+    const tokens = words(phrase.text);
+    if (!tokens.length) return [];
+    // PDF 문구는 페이지에서 떨어져 있어도 단어별로 대조한다.
+    const missing = tokens.filter((token) => !pdfText.includes(token) && !pdfWords.some((word) => word.includes(token)));
+    const suggestions = missing.map((token) => {
+      const near = pdfWords.find((word) => word.length >= 2 && editDistance(token, word) <= (token.length >= 5 ? 2 : 1));
+      return { token, near };
+    });
+    return [{ ...phrase, matched: missing.length === 0, missing: suggestions }];
+  });
 }
 
 export default function EpubCoverPdfCheck({ epubFile, section, coverPdf }: { epubFile: File; section?: CoverSection; coverPdf?: File | null }) {
@@ -191,8 +217,8 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf }: { epu
           {!allMatched && failures.map((row, index) => (
             <div className="cover-pdf-issue" key={index}>
               <strong className="status-failure">X</strong>
-              <span>{row.text}</span>
-              <small>EPUB {row.source} · PDF에서 찾지 못함</small>
+              <span>{row.missing.map((item) => item.near ? `${item.token} (PDF 유사 문구: ${item.near})` : item.token).join(' · ')}</span>
+              <small>EPUB {row.source} 원문: {row.text}</small>
             </div>
           ))}
         </div>

@@ -39,9 +39,10 @@ async function loadPdfJs(): Promise<PdfJs> {
       document.head.appendChild(script);
     });
   }
-  if (!global.pdfjsLib) throw new Error('PDF 분석 라이브러리를 초기화하지 못했습니다.');
-  global.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
-  return global.pdfjsLib;
+  const pdfjs = (window as Window & { pdfjsLib?: PdfJs }).pdfjsLib;
+  if (!pdfjs) throw new Error('PDF 분석 라이브러리를 초기화하지 못했습니다.');
+  pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+  return pdfjs;
 }
 
 async function extractCoverPdf(file: File): Promise<{ page: number; text: string }[]> {

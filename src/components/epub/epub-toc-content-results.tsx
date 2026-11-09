@@ -23,8 +23,8 @@ type Draft = { tocText: string; contentText: string };
 type AlignedPair = { toc?: TocContentEntry; content?: TocContentEntry; excluded?: boolean };
 const DEFAULT_EXCLUDED = ['2026 읽기쉬운책 160권을 소개합니다', '판권지', '글의 순서'];
 // 목차 제목 뒤의 쪽수(예: 12쪽, 12 쪽, 12페이지)는 오탈자로 취급하지 않습니다.
-const withoutPageNumber = (value: string) => value.replace(/(?:[.·…\\s]*\\d+\\s*(?:쪽|페이지))\\s*$/u, '').trim();
-const normalize = (value: string) => withoutPageNumber(value).replace(/\\s+/g, ' ').trim();
+const withoutPageNumber = (value: string) => value.replace(/(?:[.·…\s]*\d+\s*(?:쪽|페이지))\s*$/u, '').trim();
+const normalize = (value: string) => withoutPageNumber(value).replace(/\s+/g, ' ').trim();
 const alignText = (value: string) => normalize(value).replace(/^[•●○◦▪▫■□◆◇‣⁃∙·]+\s*/u, '');
 type PdfTocEvidence = { expected: string; page: number; score: number };
 const pdfText = (value: string) => withoutPageNumber(value.normalize('NFKC')).replace(/^[\s•●○◦▪▫■□◆◇‣⁃∙·]+/u, '').replace(/[.·…\s\d]+$/u, '').replace(/\s+/g, '').replace(/[|｜]/g, '');

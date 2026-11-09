@@ -110,7 +110,7 @@ export default function EpubUploader() {
   const [tocFixes, setTocFixes] = useState<TocContentFix[]>([]);
   const [tocDraftEdits, setTocDraftEdits] = useState<{ issueId: string; tocText: string; contentText: string }[]>([]);
   const [tocDraftChanged, setTocDraftChanged] = useState(false);
-  const [tocExcludedTitles, setTocExcludedTitles] = useState<string[]>(['작가 소개', '판권지', '글의 순서']);
+  const [tocExcludedTitles, setTocExcludedTitles] = useState<string[]>(['2026 읽기쉬운책 160권을 소개합니다', '판권지', '글의 순서']);
   const [fixingTocId, setFixingTocId] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<WorkflowStep>('metadata');
   const [metadataTextFixes, setMetadataTextFixes] = useState<MetadataTextFix[]>([]);
@@ -817,7 +817,7 @@ export default function EpubUploader() {
     setTocFixes([]);
     setTocDraftEdits([]);
     setTocDraftChanged(false);
-    setTocExcludedTitles(['작가 소개', '판권지', '글의 순서']);
+    setTocExcludedTitles(['2026 읽기쉬운책 160권을 소개합니다', '판권지', '글의 순서']);
     setMetadataTextFixes([]);
     setAccessibilityFixRequested(false);
     setRemoveAccFixRequested(false);

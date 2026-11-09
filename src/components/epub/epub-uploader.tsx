@@ -956,6 +956,7 @@ export default function EpubUploader() {
               metadataCreator={metadata.creator}
               epubFile={originalFile}
               bodyPdf={uploadBodyPdf}
+              onApplyEpub={(file) => { setOriginalFile(file); setUploadEpub(file); }}
               onFixAccessibility={fixAccessibilityLevel}
               onRemoveAccFix={removeAccFixTags}
               onFixText={applyMetadataTextFix}

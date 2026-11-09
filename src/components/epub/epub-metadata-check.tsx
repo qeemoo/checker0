@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import JSZip from 'jszip';
+import { BOOK_REFERENCES } from '../../lib/epub/book-references';
 import { displayEpubPath } from '../../lib/epub/epub-utils';
 import type { CountCheckResult, EpubMetadataChecks, MetadataTextDetail } from '../../types/epub';
 import { CheckStatus } from './epub-check-ui';
@@ -13,6 +15,7 @@ interface Props {
   accessibilityModified: boolean;
   metadataTitle: string;
   metadataCreator: string;
+  epubFile: File;
   disabled: boolean;
   onFixAccessibility: () => Promise<void>;
   onRemoveAccFix: () => Promise<void>;
@@ -167,6 +170,7 @@ export default function EpubMetadataCheck({
   accessibilityModified,
   metadataTitle,
   metadataCreator,
+  epubFile,
   disabled,
   onFixAccessibility,
   onRemoveAccFix,
@@ -177,6 +181,46 @@ export default function EpubMetadataCheck({
   const [expanded, setExpanded] = useState<'accessibility' | 'accfix' | 'title' | 'cover' | 'copyright' | 'introduce' | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [rightsChecks, setRightsChecks] = useState<{ label: string; expected: string; actual: string; ok: boolean }[] | null>(null);
+  const [rightsError, setRightsError] = useState('');
+  const norm = (value: string) => value.normalize('NFKC').replace(/\s+/g, '').trim();
+  const reference = BOOK_REFERENCES.find((book) => norm(book.title) === norm(metadataTitle));
+  useEffect(() => {
+    let active = true;
+    async function inspect() {
+      try {
+        const zip = await JSZip.loadAsync(epubFile);
+        const read = async (name: string) => {
+          const path = Object.keys(zip.files).find((item) => item.toLowerCase().endsWith('/' + name) || item.toLowerCase() === name);
+          const entry = path ? zip.file(path) : null;
+          if (!entry) return null;
+          const xml = await entry.async('string');
+          const doc = new DOMParser().parseFromString(xml, 'application/xhtml+xml');
+          return doc.querySelector('parsererror') ? null : doc;
+        };
+        const [intro, copyright] = await Promise.all([read('introduce.xhtml'), read('copyright.xhtml')]);
+        const authorName = intro?.querySelector('p.author-name')?.textContent?.trim() ?? '';
+        const copyrightAuthor = Array.from(copyright?.querySelectorAll('p') ?? []).find((p) => norm(p.querySelector('span.copy_b')?.textContent ?? '') === '지은이');
+        const creditedAuthor = copyrightAuthor?.querySelector('span.copy_t')?.textContent?.trim() ?? '';
+        const permission = Array.from(copyright?.querySelectorAll('p') ?? []).find((p) => /동의를 받아 만들었습니다/.test(p.textContent ?? ''));
+        const permissionText = permission?.textContent?.trim() ?? '';
+        const expectedAuthor = metadataCreator.trim();
+        const publisher = reference?.publisher ?? '';
+        const checks = [
+          { label: '소개 · author-name', expected: expectedAuthor, actual: authorName, ok: Boolean(expectedAuthor && norm(authorName) === norm(expectedAuthor)) },
+          { label: '판권 · 지은이 / copy_t', expected: expectedAuthor, actual: creditedAuthor, ok: Boolean(expectedAuthor && norm(creditedAuthor) === norm(expectedAuthor)) },
+          { label: '판권 · 글 © 작가명', expected: '글 ©' + expectedAuthor, actual: permissionText, ok: Boolean(expectedAuthor && norm(permissionText).includes(norm('글 ©' + expectedAuthor))) },
+          { label: '판권 · 도서출판 출판사명', expected: publisher ? '도서출판 ' + publisher : '도서 정보에 출판사 없음', actual: permissionText, ok: Boolean(publisher && norm(permissionText).includes(norm('도서출판' + publisher))) },
+        ];
+        if (active) { setRightsChecks(checks); setRightsError(''); }
+      } catch (error) {
+        if (active) { setRightsChecks(null); setRightsError(error instanceof Error ? error.message : '판권 검사 실패'); }
+      }
+    }
+    void inspect();
+    return () => { active = false; };
+  }, [epubFile, metadataTitle, metadataCreator]);
+
 
   useEffect(() => {
     if (!toast) return;
@@ -276,6 +320,21 @@ export default function EpubMetadataCheck({
             <MetadataSubsection label="저자 · author-name" items={resultDetails('저자', checks.introduceCreator, metadataCreator)} emptyText="author-name 클래스를 가진 p 태그를 찾지 못했습니다." disabled={disabled || busy} onFix={(detail, text) => runAction(() => onFixText(detail, text), '적용되었습니다.')} onApplyAll={() => runAction(() => onFixAllText((checks.introduceCreator.details ?? []), metadataCreator), '메타데이터 작가명을 적용했습니다.')} />
           </div>}
         </div>
+      </div>
+
+      <div className="metadata-check-group">
+        <h3 className="metadata-check-group-title">작가 · 출판사 교차 검사</h3>
+        <p className="metadata-check-help">소개와 판권의 작가명, 판권의 출판사명을 도서 기본 정보 및 등록 도서 목록과 대조합니다.</p>
+        {rightsError && <p className="status-failure">{rightsError}</p>}
+        {!rightsChecks && !rightsError && <p className="metadata-check-help">검사 중...</p>}
+        {rightsChecks?.map((item) => (
+          <div className="metadata-check-item" key={item.label}>
+            <div className="rights-check-row">
+              <div><strong>{item.label}</strong><p>기준: {item.expected}</p>{!item.ok && <p>EPUB: {item.actual || '(해당 항목 없음)'}</p>}</div>
+              <CheckStatus ok={item.ok} />
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="metadata-check-group">

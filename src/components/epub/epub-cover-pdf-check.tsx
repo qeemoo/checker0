@@ -9,7 +9,7 @@ type PdfDocument = { numPages: number; getPage: (page: number) => Promise<PdfPag
 type PdfJs = { GlobalWorkerOptions: { workerSrc: string }; getDocument: (input: { data: Uint8Array }) => { promise: Promise<PdfDocument> } };
 
 type CoverSection = 'cover' | 'introduce' | 'backcover';
-type MatchRow = { text: string; matched: boolean; possible: boolean; page: number };
+type MatchRow = { text: string; page: number };
 type Target = { file: string; text: string; alt: string };
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -95,17 +95,6 @@ async function extractEpubCover(file: File): Promise<Target[]> {
   return targets;
 }
 
-function compare(lines: { page: number; text: string }[], targets: Target[]): MatchRow[] {
-  const full = targets.map((target) => target.text).join('');
-  return lines.map((line) => {
-    const normalized = compact(line.text);
-    const matched = targets.some((target) => target.text.includes(normalized)) || full.includes(normalized);
-    const fragments = normalized.match(/.{5,12}/g) ?? [];
-    const hits = fragments.filter((part) => full.includes(part)).length;
-    return { ...line, matched, possible: !matched && fragments.length > 0 && hits / fragments.length >= 0.5 };
-  });
-}
-
 function evaluate(lines: { page: number; text: string }[], target?: Target) {
   return lines.map((line) => {
     const value = compact(line.text);
@@ -121,9 +110,6 @@ export default function EpubCoverPdfCheck({ epubFile, section }: { epubFile: Fil
   const [targets, setTargets] = useState<Target[]>([]);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
-  const [showMatched, setShowMatched] = useState(false);
-  const [ignored, setIgnored] = useState<number[]>([]);
-  const [assignments, setAssignments] = useState<Record<number, CoverSection | 'unassigned'>>({});
   const [selectedSection, setSelectedSection] = useState<CoverSection>('cover');
   useEffect(() => { if (section) setSelectedSection(section); }, [section]);
   const sections: { id: CoverSection; label: string; file: string }[] = [
@@ -137,13 +123,11 @@ export default function EpubCoverPdfCheck({ epubFile, section }: { epubFile: Fil
     setWorking(true);
     setError('');
     setRows(null);
-    setIgnored([]);
-    setAssignments({});
     try {
       const [lines, epubTargets] = await Promise.all([extractCoverPdf(pdfFile), extractEpubCover(epubFile)]);
       if (!lines.length) throw new Error('PDF에서 선택 가능한 텍스트를 추출하지 못했습니다. 이미지 PDF는 OCR이 필요합니다.');
       setTargets(epubTargets);
-      setRows(lines.map((line) => ({ ...line, matched: false, possible: false })));
+      setRows(lines);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '표지 대조 중 오류가 발생했습니다.');
     } finally {

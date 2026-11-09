@@ -64,9 +64,7 @@ type WorkflowStep =
 
 const WORKFLOW_STEPS: { id: WorkflowStep; label: string; path: string }[] = [
   { id: 'metadata', label: '기본 정보', path: '/metadata' },
-  { id: 'cover', label: '표지', path: '/cover' },
-  { id: 'introduce', label: '소개', path: '/introduce' },
-  { id: 'backcover', label: '뒤표지', path: '/backcover' },
+  { id: 'cover', label: '표지 검사', path: '/cover' },
   { id: 'metadata-check', label: '메타데이터 검사', path: '/metadata-check' },
   { id: 'structure', label: '구조 및 언어', path: '/structure' },
   { id: 'loi', label: '이미지 목차', path: '/loi' },
@@ -77,7 +75,7 @@ const WORKFLOW_STEPS: { id: WorkflowStep; label: string; path: string }[] = [
 ];
 
 function stepFromPath(pathname: string): WorkflowStep {
-  return WORKFLOW_STEPS.find((step) => step.path === pathname)?.id ?? 'metadata';
+  return pathname === '/introduce' || pathname === '/backcover' ? 'cover' : WORKFLOW_STEPS.find((step) => step.path === pathname)?.id ?? 'metadata';
 }
 
 export default function EpubUploader() {

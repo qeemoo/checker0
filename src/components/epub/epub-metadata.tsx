@@ -14,6 +14,33 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
   const [title, setTitle] = useState(draftMetadata.title);
   const [creator, setCreator] = useState(draftMetadata.creator);
   const [saving, setSaving] = useState(false);
+  const [reference, setReference] = useState<EpubMetadata>({ title: '', creator: '' });
+  const [referenceDraft, setReferenceDraft] = useState<EpubMetadata>({ title: '', creator: '' });
+  const [referenceSaved, setReferenceSaved] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('checker0-book-reference-v1');
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as EpubMetadata;
+      const next = { title: String(parsed.title ?? ''), creator: String(parsed.creator ?? '') };
+      setReference(next);
+      setReferenceDraft(next);
+      setReferenceSaved(Boolean(next.title && next.creator));
+    } catch { /* invalid browser storage; leave reference empty */ }
+  }, []);
+
+  function saveReference() {
+    const next = { title: referenceDraft.title.trim(), creator: referenceDraft.creator.trim() };
+    if (!next.title || !next.creator) return;
+    try {
+      window.localStorage.setItem('checker0-book-reference-v1', JSON.stringify(next));
+      setReference(next);
+      setReferenceSaved(true);
+    } catch { setToast({ type: 'error', message: '기준 도서 정보를 저장하지 못했습니다.' }); }
+  }
+
+  const normalize = (value: string) => value.normalize('NFKC').replace(/\\s+/g, '').trim();
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const hasChanges = title.trim() !== metadata.title || creator.trim() !== metadata.creator;
@@ -86,6 +113,25 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
           />
         </label>
       </form>
+      <div className="metadata-reference-check">
+        <div className="metadata-reference-heading">
+          <div>
+            <h3>기준 도서 정보 대조</h3>
+            <p>완성된 EPUB의 메타데이터와 비교할 기준값입니다. 이 브라우저에 저장되며 다른 기기와 동기화되지 않습니다.</p>
+          </div>
+          <button type="button" className="btn-secondary" onClick={saveReference} disabled={!referenceDraft.title.trim() || !referenceDraft.creator.trim()}>기준 정보 저장</button>
+        </div>
+        <div className="metadata-reference-fields">
+          <label>기준 도서 제목<input className="metadata-input" value={referenceDraft.title} onChange={(event) => setReferenceDraft((prev) => ({ ...prev, title: event.target.value }))} placeholder="나중에 입력할 도서 제목" /></label>
+          <label>기준 저자<input className="metadata-input" value={referenceDraft.creator} onChange={(event) => setReferenceDraft((prev) => ({ ...prev, creator: event.target.value }))} placeholder="나중에 입력할 저자명" /></label>
+        </div>
+        {!referenceSaved ? <p className="metadata-reference-pending">기준 도서 정보 미등록 · 대조 대기</p> : (
+          <div className="metadata-reference-results">
+            <p className={normalize(reference.title) === normalize(metadata.title) ? 'status-success' : 'status-failure'}>제목: {normalize(reference.title) === normalize(metadata.title) ? '일치' : '불일치'} · EPUB: {metadata.title || '(없음)'}</p>
+            <p className={normalize(reference.creator) === normalize(metadata.creator) ? 'status-success' : 'status-failure'}>저자: {normalize(reference.creator) === normalize(metadata.creator) ? '일치' : '불일치'} · EPUB: {metadata.creator || '(없음)'}</p>
+          </div>
+        )}
+      </div>
       {toast && (
         <div
           className={`metadata-toast ${toast.type === 'success' ? 'is-success' : 'is-error'}`}

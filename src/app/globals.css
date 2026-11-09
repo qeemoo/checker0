@@ -2689,3 +2689,27 @@ input[type="text"]:focus,input:not([type]):focus,.metadata-input:focus { border-
 .cover-compare-controls{display:flex;gap:8px;margin-top:10px}
 .cover-compare-side small{color:#667085;font-size:12px}
 @media(max-width:640px){.cover-compare-grid{grid-template-columns:1fr}.cover-compare-side+.cover-compare-side{border-left:0;border-top:1px solid #e5e7eb}}
+
+/* 모든 단계에서 본문과 상단 바의 가로 기준선을 동일하게 유지합니다. */
+.app-shell, .app-shell.has-workflow {width:min(calc(100% - 40px),1040px);max-width:1040px;min-width:0;margin-inline:auto}
+.workflow-sticky-header{width:100vw;max-width:none;margin-left:calc(50% - 50vw);padding-inline:max(20px,calc((100vw - 1040px)/2));box-sizing:border-box}
+.workflow-header-inner{width:100%;max-width:1040px;margin-inline:auto;box-sizing:border-box}
+.app-shell .panel,.app-shell .workflow-progress,.app-shell .epub-cover-pdf-check,.app-shell .cover-pdf-results{max-width:100%;min-width:0;box-sizing:border-box}
+.cover-compare-issue,.cover-compare-grid,.cover-compare-side{max-width:100%;min-width:0}
+.cover-compare-side{overflow-wrap:anywhere;word-break:break-word}
+.cover-compare-side p,.cover-compare-head{overflow-wrap:anywhere;word-break:break-word}
+/* 많은 단계를 일정한 폭의 가로 스크롤 내비게이션으로 표시합니다. */
+.workflow-step-links{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent;padding:8px 3px 13px;justify-content:flex-start}
+.workflow-step-link{flex:0 0 84px;min-width:84px;scroll-snap-align:center;border:1px solid transparent;border-radius:11px;padding:10px 4px 9px;gap:7px;transition:background .16s,border-color .16s}
+.workflow-step-link:hover{background:#f3f7ff}
+.workflow-step-link.is-current{background:#eff6ff;border-color:#b9d5ff}
+.workflow-step-link .workflow-step-name{max-width:100%;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.workflow-step-link.is-current .workflow-step-name{font-weight:800;color:#175cd3}
+.workflow-step-link.is-current .workflow-step-dot{background:#175cd3;border-color:#175cd3;color:#fff}
+.workflow-progress-track{height:5px;border-radius:20px;overflow:hidden}
+.workflow-progress-value{transition:width .25s ease}
+.rights-check-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 16px;min-width:0}
+.rights-check-row>div{min-width:0;overflow-wrap:anywhere}
+.rights-check-row strong{font-size:13px;color:#344054}
+.rights-check-row p{font-size:12px;color:#667085;margin:5px 0 0;line-height:1.6}
+@media(max-width:640px){.app-shell,.app-shell.has-workflow{width:calc(100% - 28px)}.workflow-sticky-header{padding-inline:14px}.workflow-step-link{flex-basis:78px;min-width:78px}.cover-compare-grid{grid-template-columns:minmax(0,1fr)}}

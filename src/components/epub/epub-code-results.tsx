@@ -5,7 +5,7 @@ import JSZip from 'jszip';
 import type { CodeIssueDetail, CodeCheckItemResult, EpubCodeChecks } from '../../types/epub';
 import { displayEpubPath } from '../../lib/epub/epub-utils';
 
-interface Props { checks: EpubCodeChecks; onFixIssue: (detail: CodeIssueDetail) => void | Promise<void>; fixingKey: string | null; disabled?: boolean; file?: File | null }
+interface Props { checks: EpubCodeChecks; onFixIssue: (detail: CodeIssueDetail) => void | Promise<void>; onFixDialogueQuotes: () => void | Promise<void>; fixingKey: string | null; disabled?: boolean; file?: File | null }
 function Status({ ok }: { ok: boolean }) { return <span className={`check-status ${ok ? 'is-success' : 'is-failure'}`}>{ok ? '통과' : '실패'}</span>; }
 function keyOf(detail: CodeIssueDetail) { return `${detail.file}:${detail.fixType}:${detail.targetIndex}`; }
 function preview(source: string) { return source.replace(/\s+xmlns(?::[\w.-]+)?=(['"])[\s\S]*?\1/g, ''); }
@@ -121,8 +121,9 @@ function AsideGroup({ value, onFixIssue, fixingKey, disabled }: { value: CodeChe
   </section>;
 }
 
-export default function EpubCodeResults({ checks, onFixIssue, fixingKey, disabled = false, imageAssets, file }: Props & { imageAssets?: ReactNode }) {
+export default function EpubCodeResults({ checks, onFixIssue, onFixDialogueQuotes, fixingKey, disabled = false, imageAssets, file }: Props & { imageAssets?: ReactNode }) {
   return <section className="panel check-page-panel"><h2 className="check-page-title">코드</h2><div className="code-groups">
+    <div className="toc-excluded-heading"><strong>대화문 따옴표</strong><button type="button" className="compact-action" onClick={() => void onFixDialogueQuotes()} disabled={disabled || fixingKey !== null || !checks.dialogue.details.some((detail) => detail.reasons.some((reason) => reason.includes("따옴표")))}>여닫는 따옴표 일괄 수정</button></div>
     <CodeGroup label="대화문" value={checks.dialogue} onFixIssue={onFixIssue} fixingKey={fixingKey} disabled={disabled} />
     <AsideGroup value={checks.asideRole} onFixIssue={onFixIssue} fixingKey={fixingKey} disabled={disabled} />
     <CodeGroup label="이미지" value={checks.imageRole} onFixIssue={onFixIssue} fixingKey={fixingKey} disabled={disabled}>{imageAssets}</CodeGroup>

@@ -4,12 +4,12 @@ import { useEffect, useState } from 'react';
 import JSZip from 'jszip';
 
 type PdfTextItem = { str: string; transform: number[] };
-type PdfPage = { getTextContent: () => Promise<{ items: PdfTextItem[] }> };
+type PdfPage = { getTextContent: () => Promise<{ items: PdfTextItem[] }>; getViewport: (options: { scale: number }) => { width: number } };
 type PdfDocument = { numPages: number; getPage: (page: number) => Promise<PdfPage>; destroy: () => Promise<void> };
 type PdfJs = { GlobalWorkerOptions: { workerSrc: string }; getDocument: (input: { data: Uint8Array }) => { promise: Promise<PdfDocument> } };
 
 type CoverSection = 'cover' | 'introduce' | 'backcover';
-type MatchRow = { text: string; page: number };
+type MatchRow = { text: string; page: number; column: number };
 type Target = { file: string; path: string; phrases: { text: string; source: '본문' | 'alt'; altIndex?: number }[] };
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -54,24 +54,27 @@ async function extractCoverPdf(file: File): Promise<{ page: number; text: string
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
-      const groups: { y: number; items: { x: number; text: string }[] }[] = [];
-      for (const item of content.items) {
-        const value = item.str?.trim();
-        if (!value) continue;
-        const x = item.transform?.[4] ?? 0;
-        const y = item.transform?.[5] ?? 0;
-        let group = groups.find((candidate) => Math.abs(candidate.y - y) < 2);
-        if (!group) {
-          group = { y, items: [] };
-          groups.push(group);
+      const width = page.getViewport({ scale: 1 }).width;
+      const items = content.items.filter((item) => item.str?.trim()).map((item) => ({
+        x: item.transform?.[4] ?? 0,
+        y: item.transform?.[5] ?? 0,
+        text: item.str.trim(),
+      }));
+      const hasLeft = items.some((item) => item.x < width * 0.4);
+      const hasRight = items.some((item) => item.x > width * 0.6);
+      const splitColumns = hasLeft && hasRight;
+      for (const column of splitColumns ? [0, 1] : [0]) {
+        const columnItems = items.filter((item) => !splitColumns || (column === 0 ? item.x < width / 2 : item.x >= width / 2));
+        const groups: { y: number; items: { x: number; text: string }[] }[] = [];
+        for (const item of columnItems) {
+          let group = groups.find((candidate) => Math.abs(candidate.y - item.y) < 2);
+          if (!group) { group = { y: item.y, items: [] }; groups.push(group); }
+          group.items.push(item);
         }
-        group.items.push({ x, text: value });
-      }
-      // PDF.js 텍스트 항목의 반환 순서는 화면의 읽기 순서와 다를 수 있습니다.
-      // 위에서 아래로 정렬해야 '순' + 줄바꿈 + '간'을 '순간'으로 복원할 수 있습니다.
-      for (const group of groups.sort((a, b) => b.y - a.y)) {
-        const line = group.items.sort((a, b) => a.x - b.x).map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim();
-        if (compact(line).length >= 1) lines.push({ page: pageNumber, text: line });
+        for (const group of groups.sort((left, right) => right.y - left.y)) {
+          const line = group.items.sort((left, right) => left.x - right.x).map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim();
+          if (compact(line)) lines.push({ page: pageNumber, column, text: line });
+        }
       }
     }
   } finally {
@@ -127,24 +130,25 @@ function editDistance(a: string, b: string): number {
   return previous[b.length];
 }
 
+function compareCompact(value: string): string {
+  return compact(value).replace(/[\\\u00b7|｜.,!?;:(){}\[\]『』「」‘’“”"'~\-–—]/g, '');
+}
+
 function evaluate(lines: MatchRow[], target?: Target) {
-  const pages = [...new Set(lines.map((line) => line.page))].map((page) => ({
-    page,
-    lines: lines.filter((line) => line.page === page),
-  }));
+  const regions = [...new Set(lines.map((line) => line.page + ':' + line.column))].map((key) => {
+    const regionLines = lines.filter((line) => line.page + ':' + line.column === key);
+    return { lines: regionLines, normalized: compareCompact(regionLines.map((line) => line.text).join('')) };
+  });
   return (target?.phrases ?? []).map((phrase, phraseIndex) => {
-    const tokens = words(phrase.text);
-    const missing = tokens.filter((token) => !pages.some(({ lines: pageLines }) => {
-      // 행 사이에서 분리된 단어는 이웃 행을 결합해 복원한다.
-      return pageLines.some((line, index) => {
-        const joined = compact(line.text + (pageLines[index + 1]?.text ?? ''));
-        return joined.includes(token) || compact(line.text).includes(token);
-      });
-    }));
-    const pdfCandidates = pages.flatMap(({ page, lines: pageLines }) => pageLines.map((line, index) => ({
-      page, text: line.text, score: tokens.filter((token) => compact(line.text + (pageLines[index + 1]?.text ?? '')).includes(token)).length,
-    }))).sort((a, b) => b.score - a.score);
-    const candidate = pdfCandidates[0];
+    const tokens = words(phrase.text).map(compareCompact).filter(Boolean);
+    const missing = [...new Set(tokens.filter((token) => !regions.some((region) => region.normalized.includes(token))))];
+    const candidates = regions.flatMap((region) => region.lines.map((line, index) => {
+      const context = region.lines.slice(Math.max(0, index - 1), index + 4).map((item) => item.text).join('\n');
+      const normalized = compareCompact(context);
+      const score = tokens.filter((token) => normalized.includes(token)).length;
+      return { page: line.page, text: context, score };
+    })).sort((left, right) => right.score - left.score);
+    const candidate = candidates[0];
     return { ...phrase, phraseIndex, matched: missing.length === 0, missing, candidate: candidate?.score ? candidate : null };
   });
 }

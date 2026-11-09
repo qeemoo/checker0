@@ -134,6 +134,8 @@ function compareCompact(value: string): string {
   return compact(value).replace(/[\\\u00b7|｜.,!?;:(){}\[\]『』「」‘’“”"'~\-–—]/g, '');
 }
 
+const STANDARD_NOTICE = '국립장애인도서관은 발달장애인과 느린 학습자를 비롯한 모든 이용자가 책을 이해하고 친밀감을 가질 수 있도록 ‘읽기쉬운책’을 제작하고 있습니다. 발달장애인 당사자와 전문가의 의견을 반영하여 160종의 도서를 선정하고, 쉬운 문장 표현과 이미지 활용을 통해 내용을 새롭게 구성하였습니다.';
+
 function evaluate(lines: MatchRow[], target?: Target) {
   const regions = [...new Set(lines.map((line) => line.page + ':' + line.column))].map((key) => {
     const regionLines = lines.filter((line) => line.page + ':' + line.column === key);
@@ -141,7 +143,13 @@ function evaluate(lines: MatchRow[], target?: Target) {
   });
   return (target?.phrases ?? []).map((phrase, phraseIndex) => {
     const tokens = words(phrase.text).map(compareCompact).filter(Boolean);
-    const missing = [...new Set(tokens.filter((token) => !regions.some((region) => region.normalized.includes(token))))];
+    // 모든 표지에 동일하게 들어가는 안내문은 PDF 추출 결과를 사용하지 않고 고정 원문으로 검사합니다.
+    const standard = compareCompact(STANDARD_NOTICE);
+    const noticeAnchors = ['국립장애인도서관', '발달장애인', '느린학습자', '읽기쉬운책', '160종의도서', '쉬운문장표현', '이미지활용'];
+    const normalizedPhrase = compareCompact(phrase.text);
+    const noticeHits = tokens.filter((token) => standard.includes(token)).length;
+    const isStandardNotice = noticeAnchors.some((anchor) => normalizedPhrase.includes(anchor)) || (tokens.length >= 4 && noticeHits >= 3 && noticeHits / tokens.length >= 0.5);
+    const missing = [...new Set(tokens.filter((token) => isStandardNotice ? !standard.includes(token) : !regions.some((region) => region.normalized.includes(token))))];
     const candidates = regions.flatMap((region) => region.lines.map((line, index) => {
       const context = region.lines.slice(Math.max(0, index - 1), index + 4).map((item) => item.text).join('\n');
       const normalized = compareCompact(context);
@@ -149,7 +157,7 @@ function evaluate(lines: MatchRow[], target?: Target) {
       return { page: line.page, text: context, score };
     })).sort((left, right) => right.score - left.score);
     const candidate = candidates[0];
-    return { ...phrase, phraseIndex, matched: missing.length === 0, missing, candidate: candidate?.score ? candidate : null };
+    return { ...phrase, phraseIndex, matched: missing.length === 0, missing, isStandardNotice, candidate: isStandardNotice ? { page: 0, text: STANDARD_NOTICE, score: 1 } : candidate?.score ? candidate : null };
   });
 }
 
@@ -305,9 +313,9 @@ export default function EpubCoverPdfCheck({ epubFile, section, coverPdf, onApply
                   )}
                 </div>
                 <div className="cover-compare-side">
-                  <strong>PDF {row.candidate ? `· ${row.candidate.page}페이지` : ''}</strong>
+                  <strong>{row.isStandardNotice ? '공통 안내문 · 기준 원문' : `PDF ${row.candidate ? `· ${row.candidate.page}페이지` : ''}`}</strong>
                   <p>{row.candidate ? highlight(row.candidate.text, words(row.candidate.text).filter((token) => row.missing.some((missing) => editDistance(token, missing) <= 2))) : '대응하는 PDF 문구를 찾지 못했습니다.'}</p>
-                  <small>가장 관련성이 높은 PDF 행 · 검토용 후보</small>
+                  <small>{row.isStandardNotice ? 'PDF와 비교하지 않고 고정된 공통 문구와 대조합니다.' : '가장 관련성이 높은 PDF 행 · 검토용 후보'}</small>
                 </div>
               </div>
             </div>

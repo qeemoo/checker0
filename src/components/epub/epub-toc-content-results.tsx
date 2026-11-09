@@ -25,7 +25,7 @@ const DEFAULT_EXCLUDED = ['2026 읽기쉬운책 160권을 소개합니다', '판
 const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 const alignText = (value: string) => normalize(value).replace(/^[•●○◦▪▫■□◆◇‣⁃∙·]+\s*/u, '');
 type PdfTocEvidence = { expected: string; page: number; score: number };
-const pdfText = (value: string) => value.normalize('NFKC').replace(/^[\\s•●○◦▪▫■□◆◇‣⁃∙·]+/u, '').replace(/[.·…\\s\\d]+$/u, '').replace(/\\s+/g, '').replace(/[|｜]/g, '');
+const pdfText = (value: string) => value.normalize('NFKC').replace(/^[\s•●○◦▪▫■□◆◇‣⁃∙·]+/u, '').replace(/[.·…\s\d]+$/u, '').replace(/\s+/g, '').replace(/[|｜]/g, '');
 function similarity(left: string, right: string) {
   if (!left || !right) return 0;
   if (left === right) return 1;
@@ -126,13 +126,13 @@ export default function EpubTocContentResults({
     setPdfTocState('loading');
     extractCoverPdf(bodyPdf).then((lines) => {
       if (!active) return;
-      const heading = lines.find((line) => /글\\s*의\\s*순\\s*서/.test(line.text));
+      const heading = lines.find((line) => /글\s*의\s*순\s*서/.test(line.text));
       if (!heading) { setPdfTocLines([]); setPdfTocState('missing'); return; }
       const pageLines = lines.filter((line) => line.page === heading.page);
       const index = pageLines.findIndex((line) => line === heading);
       const candidates = pageLines.slice(index + 1).filter((line) => {
         const value = pdfText(line.text);
-        return value.length >= 2 && !/^\\d+$/.test(value) && !/^(글의순서|목차)$/.test(value);
+        return value.length >= 2 && !/^\d+$/.test(value) && !/^(글의순서|목차)$/.test(value);
       });
       setPdfTocLines(candidates.map(({text,page}) => ({text,page})));
       setPdfTocState('ready');

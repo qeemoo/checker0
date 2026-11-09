@@ -41,7 +41,10 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
     } catch { setToast({ type: 'error', message: '기준 도서 정보를 저장하지 못했습니다.' }); }
   }
 
-  const normalize = (value: string) => value.normalize('NFKC').replace(/\\s+/g, '').trim();
+  const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/g, '').trim();
+  const matchedBook = BOOK_REFERENCES.find((book) => normalize(book.title) === normalize(metadata.title));
+  const effectiveReference = referenceSaved ? reference : matchedBook ? { title: matchedBook.title, creator: matchedBook.creator } : null;
+  const bookInList = Boolean(matchedBook);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const hasChanges = title.trim() !== metadata.title || creator.trim() !== metadata.creator;
@@ -129,8 +132,8 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
         {!effectiveReference ? <p className="metadata-reference-pending">목록에서 해당 도서를 찾지 못했습니다 · 검토 필요 (자동 일치 처리하지 않음)</p> : (
           <div className="metadata-reference-results">
             <p>{referenceSaved ? '수동 저장 기준' : bookInList ? '제공된 도서 목록 기준' : '기준 정보'}</p>
-            <p className={normalize(effectiveReference.title) === normalize(metadata.title) ? 'status-success' : 'status-failure'}>제목: {normalize(reference.title) === normalize(metadata.title) ? '일치' : '불일치'} · 기준: {effectiveReference.title} · EPUB: {metadata.title || '(없음)'}</p>
-            <p className={normalize(effectiveReference.creator) === normalize(metadata.creator) ? 'status-success' : 'status-failure'}>저자: {normalize(reference.creator) === normalize(metadata.creator) ? '일치' : '불일치'} · 기준: {effectiveReference.creator} · EPUB: {metadata.creator || '(없음)'}</p>
+            <p className={normalize(effectiveReference.title) === normalize(metadata.title) ? 'status-success' : 'status-failure'}>제목: {normalize(effectiveReference.title) === normalize(metadata.title) ? '일치' : '불일치'} · 기준: {effectiveReference.title} · EPUB: {metadata.title || '(없음)'}</p>
+            <p className={normalize(effectiveReference.creator) === normalize(metadata.creator) ? 'status-success' : 'status-failure'}>저자: {normalize(effectiveReference.creator) === normalize(metadata.creator) ? '일치' : '불일치'} · 기준: {effectiveReference.creator} · EPUB: {metadata.creator || '(없음)'}</p>
           </div>
         )}
       </div>

@@ -59,7 +59,7 @@ export default function EpubMetadataSection({ metadata, draftMetadata, onDraftCh
   return (
     <section className="mb-6 panel metadata-panel">
       <div className="metadata-heading-row">
-        <h2 className="text-xl font-bold">메타데이터 입력</h2>
+        <h2 className="text-xl font-bold">기본 정보</h2>
         <button
           type="submit"
           form="epub-metadata-form"

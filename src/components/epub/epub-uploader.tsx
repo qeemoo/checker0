@@ -81,6 +81,8 @@ function stepFromPath(pathname: string): WorkflowStep {
 }
 
 export default function EpubUploader() {
+  const multiFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadDragging, setUploadDragging] = useState(false);
   const [uploadEpub, setUploadEpub] = useState<File | null>(null);
   const [uploadBodyPdf, setUploadBodyPdf] = useState<File | null>(null);
   const [uploadCoverPdf, setUploadCoverPdf] = useState<File | null>(null);
@@ -263,6 +265,22 @@ export default function EpubUploader() {
       .catch((err) => { console.error('완료 통계용 EPUB 생성 실패:', err); if (active) setReportFile(originalFile); });
     return () => { active = false; };
   }, [currentStep, originalFile, metadata, cleanedCssFiles, codeFixes, tocFixes, metadataTextFixes, accessibilityFixRequested, removeAccFixRequested, titleXhtmlFixRequested, languageFixRequested, sectionTypeFixes, loiFigureFixes, deletedImagePaths]);
+
+  function acceptUploadFiles(files: FileList | File[]) {
+    const selected = Array.from(files);
+    const epub = selected.find((file) => /\\.epub$/i.test(file.name));
+    const pdfs = selected.filter((file) => /\\.pdf$/i.test(file.name));
+    if (epub) setUploadEpub(epub);
+    if (pdfs.length) {
+      const cover = pdfs.find((file) => /cover|표지|커버/i.test(file.name));
+      const body = pdfs.find((file) => file !== cover && /body|본문|내지|content/i.test(file.name));
+      if (cover && body) { setUploadCoverPdf(cover); setUploadBodyPdf(body); }
+      else if (cover) { setUploadCoverPdf(cover); if (pdfs.length > 1) setUploadBodyPdf(pdfs.find((file) => file !== cover) ?? null); }
+      else if (body) { setUploadBodyPdf(body); if (pdfs.length > 1) setUploadCoverPdf(pdfs.find((file) => file !== body) ?? null); }
+      else { setUploadBodyPdf(pdfs[0]); if (pdfs.length > 1) setUploadCoverPdf(pdfs[1]); }
+    }
+    setError('');
+  }
 
   async function handleFile(file: File) {
     if (!file.name.toLowerCase().endsWith('.epub')) {
@@ -794,14 +812,20 @@ export default function EpubUploader() {
         <>
           <div className="upload-top-space" aria-hidden="true" />
 
-          <section className="initial-upload-panel">
-            <h1>파일 등록</h1>
-            <p>EPUB, 본문 PDF, 표지 PDF를 등록한 후 검사를 시작하세요.</p>
-            <div className="initial-upload-fields">
-              <label>EPUB <span>{uploadEpub?.name ?? '파일을 선택하세요'}</span><input type="file" accept=".epub,application/epub+zip" onChange={(event) => setUploadEpub(event.target.files?.[0] ?? null)} /></label>
-              <label>본문 PDF <span>{uploadBodyPdf?.name ?? '파일을 선택하세요'}</span><input type="file" accept=".pdf,application/pdf" onChange={(event) => setUploadBodyPdf(event.target.files?.[0] ?? null)} /></label>
-              <label>표지 PDF <span>{uploadCoverPdf?.name ?? '파일을 선택하세요'}</span><input type="file" accept=".pdf,application/pdf" onChange={(event) => setUploadCoverPdf(event.target.files?.[0] ?? null)} /></label>
+          <section className="initial-upload-panel initial-upload-simple">
+            <input ref={multiFileInputRef} type="file" multiple accept=".epub,.pdf,application/pdf,application/epub+zip" className="hidden" style={{ display:'none' }} onChange={(event) => { if (event.target.files) acceptUploadFiles(event.target.files); event.target.value = ''; }} />
+            <div className={`upload-dropzone initial-multi-dropzone ${uploadDragging ? 'is-dragging' : ''}`} role="button" tabIndex={0} onClick={() => multiFileInputRef.current?.click()} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); multiFileInputRef.current?.click(); } }} onDragOver={(event) => { event.preventDefault(); setUploadDragging(true); }} onDragLeave={(event) => { event.preventDefault(); setUploadDragging(false); }} onDrop={(event) => { event.preventDefault(); setUploadDragging(false); acceptUploadFiles(event.dataTransfer.files); }}>
+              <span className="upload-icon" aria-hidden="true">↑</span>
+              <p className="upload-title">EPUB와 PDF 파일을 여기에 놓으세요.</p>
+              <p className="upload-hint">EPUB 1개 · 본문 PDF 1개 · 표지 PDF 1개</p>
+              <span className="initial-upload-open">파일 선택</span>
             </div>
+            {(uploadEpub || uploadBodyPdf || uploadCoverPdf) && <div className="initial-upload-selected">
+              <div><strong>EPUB</strong><span>{uploadEpub?.name ?? '미등록'}</span></div>
+              <div><strong>본문 PDF</strong><span>{uploadBodyPdf?.name ?? '미등록'}</span></div>
+              <div><strong>표지 PDF</strong><span>{uploadCoverPdf?.name ?? '미등록'}</span></div>
+              {uploadBodyPdf && uploadCoverPdf && <button type="button" className="initial-upload-swap" onClick={() => { setUploadBodyPdf(uploadCoverPdf); setUploadCoverPdf(uploadBodyPdf); }}>본문 / 표지 바꾸기</button>}
+            </div>}
             <button type="button" className="btn-primary initial-upload-submit" disabled={!uploadEpub || !uploadBodyPdf || !uploadCoverPdf || loading} onClick={() => { if (uploadEpub && uploadBodyPdf && uploadCoverPdf) void handleFile(uploadEpub); }}>{loading ? '검사 중...' : '검사하기'}</button>
             {error && <p className="status-failure" role="alert">{error}</p>}
           </section>

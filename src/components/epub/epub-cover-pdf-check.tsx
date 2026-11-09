@@ -45,7 +45,7 @@ async function loadPdfJs(): Promise<PdfJs> {
   return pdfJsLoading;
 }
 
-async function extractCoverPdf(file: File): Promise<MatchRow[]> {
+export async function extractCoverPdf(file: File): Promise<MatchRow[]> {
   const pdfjs = await loadPdfJs();
   pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;

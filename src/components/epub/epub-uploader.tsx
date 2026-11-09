@@ -268,18 +268,28 @@ export default function EpubUploader() {
 
   function acceptUploadFiles(files: FileList | File[]) {
     const selected = Array.from(files);
-    const epub = selected.find((file) => /\\.epub$/i.test(file.name));
-    const pdfs = selected.filter((file) => /\\.pdf$/i.test(file.name));
+    const epub = selected.find((file) => /\.epub$/i.test(file.name));
+    const pdfs = selected.filter((file) => /\.pdf$/i.test(file.name));
     if (epub) setUploadEpub(epub);
     if (pdfs.length) {
       const cover = pdfs.find((file) => /cover|표지|커버/i.test(file.name));
       const body = pdfs.find((file) => file !== cover && /body|본문|내지|content/i.test(file.name));
-      if (cover && body) { setUploadCoverPdf(cover); setUploadBodyPdf(body); }
-      else if (cover) { setUploadCoverPdf(cover); if (pdfs.length > 1) setUploadBodyPdf(pdfs.find((file) => file !== cover) ?? null); }
-      else if (body) { setUploadBodyPdf(body); if (pdfs.length > 1) setUploadCoverPdf(pdfs.find((file) => file !== body) ?? null); }
-      else { setUploadBodyPdf(pdfs[0]); if (pdfs.length > 1) setUploadCoverPdf(pdfs[1]); }
+      if (cover) setUploadCoverPdf(cover);
+      if (body) setUploadBodyPdf(body);
+      const remaining = pdfs.filter((file) => file !== cover && file !== body);
+      if (remaining.length >= 2) {
+        setUploadBodyPdf(remaining[0]);
+        setUploadCoverPdf(remaining[1]);
+      } else if (remaining.length === 1) {
+        if (cover) setUploadBodyPdf(remaining[0]);
+        else if (body) setUploadCoverPdf(remaining[0]);
+        else if (!uploadBodyPdf) setUploadBodyPdf(remaining[0]);
+        else if (!uploadCoverPdf) setUploadCoverPdf(remaining[0]);
+        else setUploadBodyPdf(remaining[0]);
+      }
     }
-    setError('');
+    if (!epub && !pdfs.length) setError('EPUB 또는 PDF 파일을 선택해 주세요.');
+    else setError('');
   }
 
   async function handleFile(file: File) {

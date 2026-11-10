@@ -14,7 +14,7 @@ import type {
   TocContentIssue,
 } from '../../types/epub';
 import { analyzeEpub } from '../../lib/epub/analyze-epub';
-import { previewEpubCss, cleanEpubCss, type CssCleanupPreview } from '../../lib/epub/clean-css';
+import { previewEpubCss, formatEpubCssIndentation, type CssCleanupPreview } from '../../lib/epub/clean-css';
 import EpubMetadataSection from './epub-metadata';
 import EpubMetadataCheck from './epub-metadata-check';
 import EpubStructureCheck from './epub-structure-check';
@@ -192,7 +192,7 @@ export default function EpubUploader() {
     ...((titleXhtmlFixRequested || languageFixRequested) ? [{ title: '문서 정보', count: Number(titleXhtmlFixRequested) + Number(languageFixRequested), description: '문서 제목과 언어 설정을 수정했습니다.' }] : []),
     ...(sectionTypeFixes.length ? [{ title: '문서 구조', count: sectionTypeFixes.length, description: '문서 구획 유형을 지정했습니다.' }] : []),
     ...(metadataTextFixes.length ? [{ title: '메타데이터 표기', count: metadataTextFixes.length, description: '저작권·소개 페이지의 제목과 저자 표기를 수정했습니다.' }] : []),
-    ...(cleanedCssFiles.length ? [{ title: 'CSS', count: cleanedCssFiles.length, description: '선택한 CSS 파일의 불필요한 스타일을 정리했습니다.' }] : []),
+    ...(cleanedCssFiles.length ? [{ title: 'CSS', count: cleanedCssFiles.length, description: '선택한 CSS 파일의 들여쓰기와 줄바꿈을 정리했습니다.' }] : []),
     ...(codeFixes.length ? [{ title: '코드', count: codeFixes.length, description: '대화문·글상자·이미지·각주 코드의 의미와 접근성 표기를 수정했습니다.' }] : []),
     ...(tocFixes.length ? [{ title: '목차', count: tocFixes.length, description: 'TOC와 본문 목차 텍스트를 일치시켰습니다.' }] : []),
     ...(loiFigureFixes.length ? [{ title: '이미지 목차', count: loiFigureFixes.length, description: '이미지 목차 설명 또는 이미지를 수정했습니다.' }] : []),
@@ -1164,7 +1164,7 @@ async function createModifiedEpub(
   if (sectionTypeFixes.length > 0) await applySectionTypeFixes(zip, sectionTypeFixes);
 
   if (cssFilesToClean.length > 0) {
-    await cleanEpubCss(zip, cssFilesToClean);
+    await formatEpubCssIndentation(zip, cssFilesToClean);
   }
 
   if (codeFixes.length > 0) {

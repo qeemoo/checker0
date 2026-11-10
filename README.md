@@ -1,36 +1,121 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# EPUB Checker
 
-## Getting Started
+EPUB 전자책을 분석하고 EPUB·본문 PDF·표지 PDF를 대조하여 메타데이터, 표지, 목차, 코드 구조, CSS, 이미지, 접근성 등의 오류를 확인·수정하는 웹 도구입니다.
 
-First, run the development server:
+- 운영 사이트: https://checker0-pi.vercel.app/
+- 저장소: https://github.com/qeemoo/checker0
+- 기술: Next.js(App Router), React, TypeScript, JSZip, PDF 분석 라이브러리
+- 배포: GitHub `main` → Vercel Production 자동 배포
+
+> 이 문서는 2026-11-10 기준 개발 기록입니다. 기능 구현 여부와 실제 EPUB 파일을 이용한 검증 완료 여부는 구분합니다.
+
+## 실행
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+브라우저에서 http://localhost:3000 에 접속합니다. 배포 전에는 `npm run build`로 빌드 검증을 권장합니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 사용 흐름
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. EPUB 파일, 본문 PDF, 표지 PDF를 업로드합니다.
+2. 분석 결과의 단계별 검사 항목을 확인합니다.
+3. 불일치 항목의 상세 내용 및 원문을 검토합니다.
+4. 수정 기능을 적용하고 EPUB을 재분석합니다.
+5. 수정한 EPUB을 내려받아 최종 검수합니다.
 
-## Learn More
+PDF 비교는 해당 PDF가 제공된 경우에만 수행됩니다. 자동 수정은 원문을 확인한 뒤 적용해야 합니다.
 
-To learn more about Next.js, take a look at the following resources:
+## 주요 기능
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 메타데이터 및 표지
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- EPUB 메타데이터와 표지·PDF의 제목, 저자, 관련 표기를 대조합니다.
+- `cover.xhtml` 이미지의 `alt` 문구를 검사·수정합니다.
+- 읽기쉬운책 프로젝트에서 `읽기쉬운책 성장·관계`와 같은 분야 정보(예: `성장·관계`)를 중요한 비교 항목으로 취급합니다.
+- 일치 항목의 수정 버튼은 비활성화하는 방향으로 검사 UI를 구성합니다.
+- 표지 PDF와 EPUB 내용의 차이를 확인하는 비교 화면이 있습니다.
 
-## Deploy on Vercel
+### 목차: TOC / CONTENT / 본문 PDF
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `toc.xhtml`의 탐색 목차와 `content.xhtml`의 '글의 순서' 항목을 수집하여 순서·텍스트·누락 여부를 비교합니다.
+- 비교 결과를 TOC / CONTENT 양쪽 열에 보여주고, 불일치 항목은 수정 모달에서 편집합니다.
+- 본문 PDF의 '글의 순서' 페이지에서 추출한 제목과 CONTENT 항목을 비교하여 오탈자 후보에 X를 표시하고, 모달 하단에 PDF 원문과 CONTENT 문구를 함께 보여줍니다.
+- 제목 끝의 쪽수(`6쪽`, `6 쪽`, `12페이지` 등)는 오탈자 비교에서 제외합니다. 예: `먼저 전하는 이야기 6쪽`과 `먼저 전하는 이야기`는 일치해야 합니다. 이 규칙은 2026-11-10 정규식 수정 커밋 `4317d38`에 반영되었습니다.
+- 비교에서 제외할 목차 제목을 관리하는 UI가 있습니다. 기본 제외 항목: `2026 읽기쉬운책 160권을 소개합니다`, `판권지`, `글의 순서`.
+- 주의: '제외'는 검사에서 무시하는 동작입니다. 실제 목차의 '작가소개'를 위 문구로 교체하는 동작과는 다릅니다.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 대화문 및 코드 구조
+
+- 대화문 `p.dialog`, `.speaker`, `.speech` 구조와 곡선형 여닫는 따옴표를 검사합니다.
+- 코드 단계의 대화문 영역에 `여닫는 따옴표 일괄 수정` 버튼을 추가했습니다(커밋 `8f66566`). 현재는 따옴표 오류가 검출된 대화문을 기존 대화문 수정 로직으로 일괄 처리하고 재분석합니다.
+- 기존 로직은 따옴표뿐 아니라 화자·대사 요소 구조를 재구성할 수 있습니다. 복잡한 중첩 인용, 누락된 따옴표, 원래의 인라인 마크업 보존 등은 추가 검증이 필요합니다.
+- 글상자 `aside` 역할, 이미지, 각주 관련 코드도 검사합니다.
+- EPUB에 포함된 표를 미리보기/코드 보기로 확인할 수 있습니다.
+
+### 기타 검사
+
+- CSS 정리, EPUB 구조, 접근성 및 관련 속성 검사
+- 이미지 자산 확인·삭제
+- 최종 검사 결과와 수정 EPUB 생성
+
+## 화면 레이아웃
+
+- 화면 전체의 좌우 스크롤을 억제하고, 상단 단계 메뉴는 가로 스크롤 대신 줄바꿈하도록 수정했습니다(커밋 `26d6625`).
+- 긴 제목·코드·표는 가능한 범위에서 줄바꿈하고 컨테이너 폭을 제한합니다.
+- 다양한 EPUB과 화면 크기에서 레이아웃 회귀 검증이 필요합니다.
+
+## 중요: TOC 수정과 본문 제목 연동 (설계 예정, 미구현)
+
+현재 TOC/CONTENT 수정 기능과 별개로, 실제 본문 제목까지 자동 동기화하는 기능은 아직 구현하지 않았습니다.
+
+권장 설계:
+
+1. TOC 항목의 `href`를 해석하여 대상 XHTML 파일과 fragment ID를 확인합니다.
+2. 대상 요소가 실제 제목(`h1`~`h6` 또는 제목 역할의 `p`/클래스)인지 검증합니다.
+3. 수정 모달에 TOC, CONTENT, 본문 제목의 세 값을 표시합니다.
+4. 사용자가 본문 제목까지 함께 수정할지 선택합니다.
+5. 선택된 요소의 텍스트만 안전하게 변경하며 `id`, `href`, 기타 인라인 마크업은 보존합니다.
+6. 저장 후 EPUB을 재분석하여 세 곳의 일치 여부를 확인합니다.
+
+**주의:** 동일 문자열을 전역 치환하지 않습니다. `href`/ID로 연결된 제목만 수정해야 합니다. PDF 원문을 최우선 기준으로 볼지, TOC/CONTENT 중 무엇을 기준으로 수정할지는 화면에서 명확히 해야 합니다.
+
+## 코드 구조
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/components/epub/epub-uploader.tsx` | 업로드, 단계 이동, 수정 상태, EPUB 재생성 |
+| `src/components/epub/epub-toc-content-results.tsx` | 목차 비교, PDF 오탈자 근거, 수정 모달 |
+| `src/lib/epub/check-toc-content.ts` | TOC/CONTENT 수집·정렬·불일치 판정 |
+| `src/components/epub/epub-code-results.tsx` | 대화문·글상자·이미지·각주 코드 검사 UI |
+| `src/lib/epub/analyze-epub.ts` | EPUB 분석 및 코드 구조 검사 |
+| `src/components/epub/epub-cover-pdf-check.tsx` | PDF 텍스트 추출 및 표지 대조 |
+| `src/app/globals.css` | 전체 스타일·반응형 레이아웃 |
+| `src/types/epub.ts` | 검사 결과 및 수정 관련 타입 |
+
+## 최근 변경 이력
+
+| 커밋 | 내용 |
+| --- | --- |
+| `c3c9bc6` | 목차 쪽수 제외 규칙 첫 적용(정규식 오류 존재) |
+| `4317d38` | 쪽수 제거 정규식 이스케이프 오류 수정 |
+| `ab9e3d3` | 대화문 따옴표 일괄 수정 버튼 추가 |
+| `8f66566` | 대화문 일괄 수정 및 재분석 로직 연결 |
+| `26d6625` | 좌우 스크롤 제거 및 상단 단계 메뉴 줄바꿈 |
+
+## 후속 점검 사항
+
+- 실제 EPUB/PDF로 쪽수 제외 판정과 PDF 목차 후보 매칭 정확도 확인
+- 대화문 일괄 수정 전후 비교, 중첩 따옴표·영문 어포스트로피·인라인 태그 보존 테스트
+- TOC 변경 시 본문 제목 연동 기능 설계·구현
+- 작은 화면의 목차 비교 열·긴 파일명·표 레이아웃 점검
+- Vercel 최신 배포의 READY 상태 및 실제 사용자 화면 확인
+
+## 작업 원칙
+
+- 기존 기능과 UI를 최대한 유지하면서 작은 단위로 수정합니다.
+- EPUB 내부 링크·ID·네임스페이스·문서 구조를 보존합니다.
+- 자동 수정은 정확한 대상이 확인되는 경우에만 적용합니다.
+- GitHub 커밋 완료, Vercel 배포 완료, 실제 기능 검증 완료를 각각 구분해 보고합니다.

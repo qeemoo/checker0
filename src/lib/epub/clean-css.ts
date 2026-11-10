@@ -451,3 +451,58 @@ export async function cleanEpubCss(
     changedXhtmlFiles,
   };
 }
+
+
+/**
+ * 서식 전용 CSS 정리. 선언·선택자·주석·문자열을 수정하지 않습니다.
+ * 해석이 불확실한 파일은 원본 그대로 보존합니다.
+ */
+export async function formatEpubCssIndentation(zip: JSZip, paths: string[]): Promise<void> {
+  for (const path of paths) {
+    const entry = zip.file(path);
+    if (!entry || !/\.css$/i.test(path)) continue;
+    const original = await entry.async('text');
+    // 주석, 문자열, CSS escape, 괄호 안의 구분자 등은 보수적으로 건너뜁니다.
+    if (/\/\*|["'\\\\]/.test(original)) continue;
+    let depth = 0;
+    let parens = 0;
+    let brackets = 0;
+    let invalid = false;
+    let output = '';
+    let segment = '';
+    const indent = () => '  '.repeat(depth);
+    const emit = (value: string) => { output += indent() + value.trim() + '\n'; };
+    for (const ch of original) {
+      if (ch === '(') parens++;
+      if (ch === ')') parens--;
+      if (ch === '[') brackets++;
+      if (ch === ']') brackets--;
+      if (parens < 0 || brackets < 0) { invalid = true; break; }
+      if (parens === 0 && brackets === 0 && ch === '{') {
+        const selector = segment.trim();
+        if (!selector) { invalid = true; break; }
+        emit(selector + ' {');
+        segment = '';
+        depth++;
+      } else if (parens === 0 && brackets === 0 && ch === ';') {
+        if (segment.trim()) emit(segment.trim() + ';');
+        else emit(';');
+        segment = '';
+      } else if (parens === 0 && brackets === 0 && ch === '}') {
+        if (depth === 0) { invalid = true; break; }
+        if (segment.trim()) emit(segment.trim());
+        segment = '';
+        depth--;
+        emit('}');
+        if (depth === 0) output += '\n';
+      } else {
+        segment += ch;
+      }
+    }
+    if (invalid || depth !== 0 || parens !== 0 || brackets !== 0) continue;
+    if (segment.trim()) output += segment.trim() + '\n';
+    // 공백을 제외한 모든 원본 문자가 같은 순서로 유지되어야 적용합니다.
+    if (output.replace(/\s/g, '') !== original.replace(/\s/g, '')) continue;
+    if (output !== original) zip.file(path, output.trimEnd() + '\n');
+  }
+}

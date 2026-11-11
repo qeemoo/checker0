@@ -2832,3 +2832,49 @@ body {
     transition: none !important;
   }
 }
+
+
+/* Sweet Coral Playful — progress ring, inline results, and readable action surfaces. */
+.upload-check-overlay { background: rgba(69,48,43,.22); }
+.upload-check-modal { min-width: min(340px,calc(100vw - 32px)); padding: 38px 30px; }
+.upload-check-modal strong { color: #45302b; font-size: 20px; }
+.upload-check-modal > span:last-child { color: #765e57; font-size: 15px; text-align: center; }
+.upload-check-spinner {
+  width: 94px;
+  height: 94px;
+  border: 9px solid #ffe9e0;
+  border-top-color: #f97360;
+  border-right-color: #f6b8aa;
+  animation: initial-upload-spin 1.15s linear infinite;
+}
+.app-shell .check-item-trigger {
+  color: #45302b;
+  min-height: 56px;
+  border-radius: 16px;
+}
+.app-shell .check-item-trigger:hover:not(:disabled) {
+  background: #fff1eb;
+  color: #45302b;
+  transform: none;
+}
+.app-shell .check-item-trigger[aria-expanded="true"] { background: #fff5f0; }
+.app-shell .check-item-trigger:disabled:hover { background: transparent; }
+.app-shell :is(.check-group,.code-group,.code-group-content,.css-file-preview,.metadata-check-detail-list) {
+  line-height: 1.65;
+}
+.app-shell :is(.check-page-panel,.panel) { padding: clamp(18px,2.8vw,30px); }
+.app-shell :is(.workflow-action,.compact-action,.btn-secondary) { min-height: 38px; }
+.app-shell :is(.upload-hint,.css-preview-caption,.check-page-description) { line-height: 1.6; }
+.app-shell :is(.code-issue-preview,.table-source-code,.css-code-preview,pre,code) {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+@keyframes sweet-coral-spin-pop {
+  from { opacity: 0; transform: scale(.86) rotate(-9deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+.app-shell :is(.upload-icon,.confirm-modal-icon) {
+  animation: sweet-coral-spin-pop .3s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell :is(.upload-icon,.confirm-modal-icon) { animation: none !important; }
+}

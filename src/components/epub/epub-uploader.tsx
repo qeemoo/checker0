@@ -85,6 +85,7 @@ export default function EpubUploader() {
   const [uploadEpub, setUploadEpub] = useState<File | null>(null);
   const [uploadBodyPdf, setUploadBodyPdf] = useState<File | null>(null);
   const [uploadCoverPdf, setUploadCoverPdf] = useState<File | null>(null);
+  const [pdfCheckEnabled, setPdfCheckEnabled] = useState(false);
   const codeFixLockRef = useRef(false);
   const tocFixLockRef = useRef(false);
 
@@ -144,7 +145,8 @@ export default function EpubUploader() {
     sectionTypeFixes.length > 0 ||
     loiFigureFixes.length > 0 || deletedImagePaths.length > 0;
 
-  const currentStepIndex = WORKFLOW_STEPS.findIndex((step) => step.id === currentStep);
+  const visibleWorkflowSteps = pdfCheckEnabled ? WORKFLOW_STEPS : WORKFLOW_STEPS.filter((step) => step.id !== 'cover');
+  const currentStepIndex = visibleWorkflowSteps.findIndex((step) => step.id === currentStep);
   useEffect(() => {
     const container = workflowStepsRef.current;
     if (!container || !originalFile) return;
@@ -216,7 +218,7 @@ export default function EpubUploader() {
         setTocDraftChanged(false);
       }
     }
-    const target = WORKFLOW_STEPS.find((item) => item.id === step);
+    const target = visibleWorkflowSteps.find((item) => item.id === step);
     if (!target) return;
     setCurrentStep(step);
     if (typeof window !== 'undefined' && window.location.pathname !== target.path) {
@@ -228,13 +230,13 @@ export default function EpubUploader() {
 
   function goPrevious() {
     if (currentStepIndex > 0) {
-      navigateToStep(WORKFLOW_STEPS[currentStepIndex - 1].id);
+      navigateToStep(visibleWorkflowSteps[currentStepIndex - 1].id);
     }
   }
 
   function goNext() {
-    if (currentStepIndex >= 0 && currentStepIndex < WORKFLOW_STEPS.length - 1) {
-      navigateToStep(WORKFLOW_STEPS[currentStepIndex + 1].id);
+    if (currentStepIndex >= 0 && currentStepIndex < visibleWorkflowSteps.length - 1) {
+      navigateToStep(visibleWorkflowSteps[currentStepIndex + 1].id);
     }
   }
 
@@ -281,6 +283,7 @@ export default function EpubUploader() {
     const pdfs = selected.filter((file) => /\.pdf$/i.test(file.name));
     if (epub) setUploadEpub(epub);
     if (pdfs.length) {
+      setPdfCheckEnabled(true);
       const cover = pdfs.find((file) => /cover|표지|커버/i.test(file.name));
       const body = pdfs.find((file) => file !== cover && /body|본문|내지|content/i.test(file.name));
       if (cover) setUploadCoverPdf(cover);
@@ -828,6 +831,7 @@ export default function EpubUploader() {
     setUploadEpub(null);
     setUploadBodyPdf(null);
     setUploadCoverPdf(null);
+    setPdfCheckEnabled(false);
     setCurrentStep('metadata');
     window.history.pushState({ epubChecker: true }, '', '/');
     setAnalysis(null);
@@ -872,17 +876,18 @@ export default function EpubUploader() {
             <input ref={multiFileInputRef} type="file" multiple accept=".epub,.pdf,application/pdf,application/epub+zip" className="hidden" style={{ display:'none' }} onChange={(event) => { if (event.target.files) acceptUploadFiles(event.target.files); event.target.value = ''; }} />
             <div className={`upload-dropzone initial-multi-dropzone ${uploadDragging ? 'is-dragging' : ''}`} role="button" tabIndex={0} onClick={() => multiFileInputRef.current?.click()} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); multiFileInputRef.current?.click(); } }} onDragOver={(event) => { event.preventDefault(); setUploadDragging(true); }} onDragLeave={(event) => { event.preventDefault(); setUploadDragging(false); }} onDrop={(event) => { event.preventDefault(); setUploadDragging(false); acceptUploadFiles(event.dataTransfer.files); }}>
               <span className="upload-icon" aria-hidden="true">↑</span>
-              <p className="upload-title">EPUB와 PDF 파일을 여기에 놓으세요.</p>
-              <p className="upload-hint">EPUB 1개 · 본문 PDF 1개 · 표지 PDF 1개</p>
+              <p className="upload-title">{pdfCheckEnabled ? "EPUB와 PDF 파일을 여기에 놓으세요." : "EPUB 파일을 여기에 놓으세요."}</p>
+              <p className="upload-hint">{pdfCheckEnabled ? "EPUB 1개 · 본문 PDF 1개 · 표지 PDF 1개" : "EPUB 1개 (PDF 검사는 선택 사항)"}</p>
               <span className="initial-upload-open">파일 선택</span>
             </div>
-            {(uploadEpub || uploadBodyPdf || uploadCoverPdf) && <div className="initial-upload-selected">
+            <label style={{ display: "flex", alignItems: "center", gap: 9, margin: "14px 0", cursor: "pointer" }}><input type="checkbox" checked={pdfCheckEnabled} onChange={(event) => setPdfCheckEnabled(event.target.checked)} /> PDF 검사 사용 (본문·표지 PDF 비교)</label>
+            {(uploadEpub || (pdfCheckEnabled && (uploadBodyPdf || uploadCoverPdf))) && <div className="initial-upload-selected">
               <div><strong>EPUB</strong><span>{uploadEpub?.name ?? '미등록'}</span></div>
-              <div><strong>본문 PDF</strong><span>{uploadBodyPdf?.name ?? '미등록'}</span></div>
-              <div><strong>표지 PDF</strong><span>{uploadCoverPdf?.name ?? '미등록'}</span></div>
-              {uploadBodyPdf && uploadCoverPdf && <button type="button" className="initial-upload-swap" onClick={() => { setUploadBodyPdf(uploadCoverPdf); setUploadCoverPdf(uploadBodyPdf); }}>본문 / 표지 바꾸기</button>}
+              {pdfCheckEnabled && <div><strong>본문 PDF</strong><span>{uploadBodyPdf?.name ?? '미등록'}</span></div>}
+              {pdfCheckEnabled && <div><strong>표지 PDF</strong><span>{uploadCoverPdf?.name ?? '미등록'}</span></div>}
+              {pdfCheckEnabled && uploadBodyPdf && uploadCoverPdf && <button type="button" className="initial-upload-swap" onClick={() => { setUploadBodyPdf(uploadCoverPdf); setUploadCoverPdf(uploadBodyPdf); }}>본문 / 표지 바꾸기</button>}
             </div>}
-            <button type="button" className="btn-primary initial-upload-submit" disabled={!uploadEpub || !uploadBodyPdf || !uploadCoverPdf || loading} onClick={() => { if (uploadEpub && uploadBodyPdf && uploadCoverPdf) void handleFile(uploadEpub); }}>{loading ? <><span className="initial-upload-spinner" aria-hidden="true" /> 검사 중...</> : '검사하기'}</button>
+            <button type="button" className="btn-primary initial-upload-submit" disabled={!uploadEpub || (pdfCheckEnabled && (!uploadBodyPdf || !uploadCoverPdf)) || loading} onClick={() => { if (uploadEpub && (!pdfCheckEnabled || (uploadBodyPdf && uploadCoverPdf))) void handleFile(uploadEpub); }}>{loading ? <><span className="initial-upload-spinner" aria-hidden="true" /> 검사 중...</> : '검사하기'}</button>
             {error && <p className="status-failure" role="alert">{error}</p>}
           </section>
         </>
@@ -923,7 +928,7 @@ export default function EpubUploader() {
               />
             </div>
             <div className="workflow-step-links" ref={workflowStepsRef}>
-              {WORKFLOW_STEPS.map((step, index) => (
+              {visibleWorkflowSteps.map((step, index) => (
                 <button
                   key={step.id}
                   type="button"
@@ -972,8 +977,8 @@ export default function EpubUploader() {
           )}
 
           {/* PDF upload and classification state stays mounted between the three cover steps. */}
-          <div style={{ display: currentStep === 'cover' || currentStep === 'introduce' || currentStep === 'backcover' ? 'block' : 'none' }}>
-            <EpubCoverPdfCheck epubFile={originalFile} coverPdf={uploadCoverPdf} onApplyEpub={(file) => { setOriginalFile(file); setUploadEpub(file); }} section={currentStep === 'introduce' ? 'introduce' : currentStep === 'backcover' ? 'backcover' : 'cover'} />
+          <div style={{ display: pdfCheckEnabled && (currentStep === 'cover' || currentStep === 'introduce' || currentStep === 'backcover') ? 'block' : 'none' }}>
+            <EpubCoverPdfCheck epubFile={originalFile} coverPdf={pdfCheckEnabled ? uploadCoverPdf : null} onApplyEpub={(file) => { setOriginalFile(file); setUploadEpub(file); }} section={currentStep === 'introduce' ? 'introduce' : currentStep === 'backcover' ? 'backcover' : 'cover'} />
           </div>
 
           {currentStep === 'metadata-check' && (
@@ -984,7 +989,7 @@ export default function EpubUploader() {
               metadataTitle={metadata.title}
               metadataCreator={metadata.creator}
               epubFile={originalFile}
-              bodyPdf={uploadBodyPdf}
+              bodyPdf={pdfCheckEnabled ? uploadBodyPdf : null}
               onApplyEpub={(file) => { setOriginalFile(file); setUploadEpub(file); }}
               onFixAccessibility={fixAccessibilityLevel}
               onRemoveAccFix={removeAccFixTags}

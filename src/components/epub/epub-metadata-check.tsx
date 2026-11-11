@@ -247,13 +247,13 @@ export default function EpubMetadataCheck({
             pdf: !localMatch && bodyPdf ? rightsPage?.text : undefined,
             pdfPage: !localMatch ? rightsPage?.page : undefined,
             note: localMatch ? undefined : verifiedByPdf ? '기본 정보와 다르지만 PDF 판권지에서 확인됨' :
-              !bodyPdf ? '불일치 · 본문 PDF가 없어 추가 확인 불가' : 'PDF에서도 확인되지 않음',
+              !bodyPdf ? 'EPUB 내부 정보 불일치' : 'PDF에서도 확인되지 않음',
           });
         };
         record('소개 · 작가명', expectedAuthor, authorName, containsName(authorName, expectedAuthor), authorName);
         const fieldValue = fieldPrefix.replace(/^\s*[|｜]\s*/, '').trim().split(/\s+/)[0] ?? '';
         const fieldNeedle = fieldValue;
-        checks.push({
+        if (bodyPdf) checks.push({
           label: '저작권 · 분야', expected: 'PDF 판권지의 분야명', actual: fieldValue || '',
           ok: Boolean(fieldValue && matchesPdf(fieldNeedle)),
           pdf: bodyPdf ? rightsPage?.text : undefined, pdfPage: rightsPage?.page,

@@ -468,7 +468,10 @@ export async function analyzeEpub(file: File): Promise<EpubAnalysisResult> {
   const conformsToValue = conformsToElement?.textContent?.trim() ?? null;
   const conformsTo = normalizeText(conformsToValue) === normalizeText(EXPECTED_CONFORMS_TO);
   const accFixTags = conforms
-    .filter((element) => `${element.getAttribute('property') ?? ''} ${element.getAttribute('name') ?? ''}`.toLowerCase().includes('acc-fix'))
+    .filter((element) => {
+      const key = `${element.getAttribute('property') ?? ''} ${element.getAttribute('name') ?? ''}`.toLowerCase();
+      return key.includes('acc-fix') || (element.getAttribute('name')?.trim().toLowerCase() === 'generator' && /accfix/i.test(element.getAttribute('content') ?? ''));
+    })
     .map((element) => element.outerHTML);
   const accFix = accFixTags.length === 0;
   const loi = await checkLoi(parsed.zip, files);

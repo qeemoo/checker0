@@ -1823,7 +1823,7 @@ async function applyAllXhtmlTitles(zip: JSZip, title: string) {
 function removeAccFixMetadata(metadataElement: Element) {
   Array.from(metadataElement.getElementsByTagName('meta')).forEach((element) => {
     const key = `${element.getAttribute('property') ?? ''} ${element.getAttribute('name') ?? ''}`.toLowerCase();
-    if (key.includes('acc-fix')) element.remove();
+    if (key.includes('acc-fix') || (element.getAttribute('name')?.trim().toLowerCase() === 'generator' && /accfix/i.test(element.getAttribute('content') ?? ''))) element.remove();
   });
 }
 
